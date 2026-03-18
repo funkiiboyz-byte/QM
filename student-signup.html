@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Student Sign Up | MegaPrep CMS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="auth-page auth-page--student auth-page--signup">
+      <section class="auth-panel auth-panel--intro">
+        <a class="back-link" href="index.html">← Back to dashboard</a>
+        <div class="brand brand--light">
+          <div class="logo-mark" aria-hidden="true"><span>M</span></div>
+          <div class="brand-copy">
+            <span class="brand-name">MegaPrep</span>
+            <span class="brand-tag brand-tag--light">Student Portal</span>
+          </div>
+        </div>
+
+        <div class="auth-hero-copy">
+          <p class="eyebrow eyebrow--light">Get started</p>
+          <h1>Create your student account with a fresh mobile-first experience.</h1>
+          <p class="auth-intro-copy auth-intro-copy--light">
+            Join MegaPrep in a clean, responsive sign-up flow designed to feel modern and easy on
+            phones, tablets, laptops, and desktops.
+          </p>
+        </div>
+
+        <div class="auth-chip-row">
+          <span class="auth-chip">Smooth onboarding</span>
+          <span class="auth-chip">Academic profile setup</span>
+          <span class="auth-chip">Responsive by default</span>
+        </div>
+
+        <div class="auth-info-grid auth-info-grid--stacked">
+          <article class="info-card">
+            <span class="info-card__label">Registration flow</span>
+            <strong>Simple & Fast</strong>
+            <p>Capture student profile details in a compact, organized layout.</p>
+          </article>
+          <article class="info-card">
+            <span class="info-card__label">Portal access</span>
+            <strong>Exam + Results</strong>
+            <p>Unlock practice, schedules, performance, and test participation.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="auth-panel auth-panel--form">
+        <div class="auth-card auth-card--student">
+          <div class="auth-card-top">
+            <div>
+              <p class="form-kicker form-kicker--student">Student sign up</p>
+              <h2>Join MegaPrep</h2>
+            </div>
+            <span class="form-status form-status--student">New learner</span>
+          </div>
+
+          <p class="form-copy">Create a student profile with your academic and contact details.</p>
+
+          <form class="auth-form auth-form--two-col">
+            <label>
+              Full name
+              <input type="text" placeholder="Nafisa Ahmed" />
+            </label>
+            <label>
+              Student ID
+              <input type="text" placeholder="MP-2026-1001" />
+            </label>
+            <label>
+              Email address
+              <input type="email" placeholder="student@megaprep.com" />
+            </label>
+            <label>
+              Mobile number
+              <input type="tel" placeholder="+880 1XXX-XXXXXX" />
+            </label>
+            <label>
+              Class / Program
+              <input type="text" placeholder="HSC Science" />
+            </label>
+            <label>
+              Password
+              <input type="password" placeholder="Create password" />
+            </label>
+            <label class="full-span checkbox-row checkbox-card">
+              <input type="checkbox" checked />
+              <span>I agree to the student portal terms and communication preferences.</span>
+            </label>
+            <button type="submit" class="submit-button submit-button--student full-span">
+              Create Student Account
+            </button>
+          </form>
+
+          <p class="switch-copy">
+            Already registered?
+            <a href="student-login.html">Login here</a>
+          </p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
