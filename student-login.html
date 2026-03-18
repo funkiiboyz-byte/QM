@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Student Login | MegaPrep CMS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="auth-page auth-page--student">
+      <section class="auth-panel auth-panel--intro">
+        <a class="back-link" href="index.html">← Back to dashboard</a>
+        <div class="brand brand--light">
+          <div class="logo-mark" aria-hidden="true"><span>M</span></div>
+          <div class="brand-copy">
+            <span class="brand-name">MegaPrep</span>
+            <span class="brand-tag brand-tag--light">Student Portal</span>
+          </div>
+        </div>
+        <p class="eyebrow eyebrow--light">Student access</p>
+        <h1>Login to continue your exam journey.</h1>
+        <p class="auth-intro-copy">
+          Review schedules, join live tests, and monitor performance from a calm, focused portal.
+        </p>
+        <div class="auth-stat-grid">
+          <div>
+            <strong>Live tests</strong>
+            <span>Instant access to assigned assessments.</span>
+          </div>
+          <div>
+            <strong>Progress</strong>
+            <span>Track scores and performance trends clearly.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="auth-panel auth-panel--form">
+        <div class="auth-card">
+          <p class="form-kicker">Student login</p>
+          <h2>Enter your portal</h2>
+          <p class="form-copy">Use your registered email or student ID to access your dashboard.</p>
+
+          <form class="auth-form">
+            <label>
+              Email or student ID
+              <input type="text" placeholder="student@megaprep.com" />
+            </label>
+            <label>
+              Password
+              <input type="password" placeholder="Enter your password" />
+            </label>
+
+            <div class="form-row">
+              <label class="checkbox-row">
+                <input type="checkbox" checked />
+                <span>Remember this device</span>
+              </label>
+              <a href="#">Need help?</a>
+            </div>
+
+            <button type="submit" class="submit-button submit-button--student">Login Now</button>
+          </form>
+
+          <p class="switch-copy">
+            New student here?
+            <a href="student-signup.html">Create your account</a>
+          </p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
