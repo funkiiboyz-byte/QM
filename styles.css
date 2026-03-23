@@ -1191,3 +1191,46 @@ a {
     padding: 16px;
   }
 }
+
+.hero-visual__panel--minimal {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.hero-visual__panel-lines {
+  display: grid;
+  gap: 14px;
+  margin-top: 30px;
+}
+
+.hero-visual__panel-lines span {
+  display: block;
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.18), rgba(148, 163, 184, 0.08));
+}
+
+.hero-visual__panel-lines span:nth-child(1) {
+  width: 72%;
+}
+
+.hero-visual__panel-lines span:nth-child(2) {
+  width: 88%;
+}
+
+.hero-visual__panel-lines span:nth-child(3) {
+  width: 58%;
+}
+
+.auth-card-top--compact {
+  margin-bottom: 18px;
+}
+
+.switch-copy--simple {
+  margin-top: 18px;
+}
+
+.card-arrow {
+  align-self: flex-end;
+}
