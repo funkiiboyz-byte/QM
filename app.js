@@ -14,7 +14,7 @@
       printConfig: {
         headerTitle: 'MegaPrep Examination',
         instructions: 'Answer all questions carefully.',
-        numberPrefix: 'Q',
+        numberPrefix: '',
         columns: '1',
         showAnswers: false,
         showExplanation: false,
@@ -388,24 +388,114 @@
 
   function importQuestionsFromJson() {
     const message = document.getElementById('jsonImportMessage');
+    const raw = document.getElementById('jsonImportText').value.trim();
+    if (!raw) {
+      message.textContent = 'Paste JSON first.';
+      return showToast('Please paste JSON before importing.', 'error');
+    }
+
     try {
-      const payload = JSON.parse(document.getElementById('jsonImportText').value);
-      if (!Array.isArray(payload.questions)) throw new Error();
-      payload.questions.forEach((question) => {
-        if (question.type === 'cq' || question.stimulus) {
-          state.questions.unshift({ id: uid('question'), type: 'cq', level: question.level || document.getElementById('qbLevel').value, group: question.group || document.getElementById('qbGroup').value, subject: question.subject || document.getElementById('qbSubject').value, topic: question.topic || document.getElementById('qbTopic').value, section: question.section || question.topic || '', stimulus: question.stimulus || question.question, subQuestions: question.subQuestions || [], image: question.image || '', createdAt: new Date().toISOString() });
-        } else {
-          state.questions.unshift({ id: uid('question'), type: question.type || 'mcq', level: question.level || document.getElementById('qbLevel').value, group: question.group || document.getElementById('qbGroup').value, subject: question.subject || document.getElementById('qbSubject').value, topic: question.topic || document.getElementById('qbTopic').value, section: question.section || question.topic || '', question: question.question, options: question.options || [], correct: question.correct || 0, explanation: question.explanation || '', image: question.image || '', createdAt: new Date().toISOString() });
+      const payload = JSON.parse(raw);
+      const defaults = {
+        level: document.getElementById('qbLevel').value,
+        group: document.getElementById('qbGroup').value,
+        subject: document.getElementById('qbSubject').value,
+        topic: document.getElementById('qbTopic').value,
+      };
+      const items = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload.questions)
+          ? payload.questions
+          : payload.question
+            ? [payload.question]
+            : payload.questions === undefined && typeof payload === 'object'
+              ? [payload]
+              : [];
+      if (!items.length) throw new Error('No valid question payload found.');
+
+      const summary = { imported: 0, skipped: 0 };
+      items.forEach((question) => {
+        const normalized = normalizeImportedQuestion(question, defaults);
+        if (!normalized) {
+          summary.skipped += 1;
+          return;
         }
+        state.questions.unshift(normalized);
+        summary.imported += 1;
       });
+
+      if (!summary.imported) throw new Error('No valid question entries.');
       saveState();
       renderQuestions();
-      message.textContent = 'Questions imported successfully.';
-      showToast('JSON import complete.');
-    } catch {
-      message.textContent = 'Invalid JSON format.';
+      message.textContent = `Imported ${summary.imported} question(s)${summary.skipped ? `, skipped ${summary.skipped}.` : '.'}`;
+      showToast(`JSON import complete (${summary.imported} added).`);
+    } catch (error) {
+      message.textContent = error?.message || 'Invalid JSON format.';
       showToast('JSON validation failed.', 'error');
     }
+  }
+
+  function normalizeImportedQuestion(question, defaults) {
+    if (!question || typeof question !== 'object') return null;
+    const type = String(question.type || (question.stimulus ? 'cq' : 'mcq')).toLowerCase();
+    if (type === 'cq') {
+      const subQuestions = Array.isArray(question.subQuestions) ? question.subQuestions.filter((item) => item && (item.prompt || item.answer || item.label)) : [];
+      const stimulus = String(question.stimulus || question.question || '').trim();
+      if (!stimulus && !subQuestions.length) return null;
+      return {
+        id: uid('question'),
+        type: 'cq',
+        level: question.level || defaults.level,
+        group: question.group || defaults.group,
+        subject: question.subject || defaults.subject,
+        topic: question.topic || defaults.topic,
+        section: question.section || question.topic || defaults.topic,
+        stimulus,
+        subQuestions: subQuestions.map((item, index) => ({
+          label: String(item.label || String.fromCharCode(65 + index)).trim(),
+          prompt: String(item.prompt || '').trim(),
+          answer: String(item.answer || '').trim(),
+        })),
+        image: question.image || '',
+        createdAt: new Date().toISOString(),
+      };
+    }
+
+    const options = Array.isArray(question.options)
+      ? question.options.map((option) => (typeof option === 'string' ? option : option?.text || '')).map((option) => String(option).trim()).filter(Boolean)
+      : [];
+    const text = String(question.question || question.stem || '').trim();
+    if (!text || !options.length) return null;
+    const correct = normalizeCorrectIndex(question.correct, question.answer, options);
+    return {
+      id: uid('question'),
+      type: 'mcq',
+      level: question.level || defaults.level,
+      group: question.group || defaults.group,
+      subject: question.subject || defaults.subject,
+      topic: question.topic || defaults.topic,
+      section: question.section || question.topic || defaults.topic,
+      question: text,
+      options,
+      correct,
+      explanation: String(question.explanation || '').trim(),
+      image: question.image || '',
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  function normalizeCorrectIndex(correct, answer, options) {
+    if (Number.isInteger(correct) && correct >= 0 && correct < options.length) return correct;
+    const raw = String(answer || '').trim();
+    if (!raw) return 0;
+    if (/^\d+$/.test(raw)) {
+      const idx = Number(raw) - 1;
+      if (idx >= 0 && idx < options.length) return idx;
+    }
+    const code = raw.toUpperCase().charCodeAt(0) - 65;
+    if (code >= 0 && code < options.length) return code;
+    const byText = options.findIndex((option) => option.toLowerCase() === raw.toLowerCase());
+    return byText >= 0 ? byText : 0;
   }
 
   function createOptionRow(option = {}) {
@@ -481,7 +571,7 @@
     const preview = document.getElementById('printPreviewMeta');
     if (!preview) return;
     const config = state.settings.printConfig;
-    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>${escapeHtml(config.instructions)}</p><p>Prefix: ${escapeHtml(config.numberPrefix)} · Columns: ${escapeHtml(config.columns)} · Answers: ${config.showAnswers ? 'Yes' : 'No'} · Explanation: ${config.showExplanation ? 'Yes' : 'No'}</p></div>`;
+    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>${escapeHtml(config.instructions)}</p><p>Numbering: 1, 2, 3... · Columns: ${escapeHtml(config.columns)} · Answers: ${config.showAnswers ? 'Yes' : 'No'} · Explanation: ${config.showExplanation ? 'Yes' : 'No'}</p></div>`;
   }
 
   function renderExamManager() {
@@ -507,16 +597,16 @@
     const config = state.settings.printConfig;
     const questions = exam.questionIds.map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
     const list = questions.map((question, index) => {
-      const number = `${config.numberPrefix || 'Q'}${index + 1}`;
+      const number = `${index + 1}`;
       const title = question.question || question.stimulus || '';
       const body = question.type === 'cq'
-        ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}</strong> ${escapeHtml(item.prompt || '')}${config.showAnswers ? `<div>Answer: ${escapeHtml(item.answer || '')}</div>` : ''}</div>`).join('')
-        : `<ol>${(question.options || []).map((option) => `<li>${escapeHtml(option)}</li>`).join('')}</ol>${config.showAnswers ? `<p><strong>Answer:</strong> ${(question.options || [])[question.correct] || ''}</p>` : ''}`;
-      const explanation = config.showExplanation && question.explanation ? `<p><strong>Explanation:</strong> ${escapeHtml(question.explanation)}</p>` : '';
+        ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${escapeHtml(item.prompt || '')}${config.showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${escapeHtml(item.answer || '')}</div>` : ''}</div>`).join('')
+        : `<ul class="option-list">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${escapeHtml(option)}</span></li>`).join('')}</ul>${config.showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${escapeHtml((question.options || [])[question.correct] || '')}</p>` : ''}`;
+      const explanation = config.showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${escapeHtml(question.explanation)}</p>` : '';
       return `<article class="print-question"><h3>${number}. ${escapeHtml(title)}</h3>${body}${explanation}</article>`;
     }).join('');
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#111}h1,h2,h3{margin:0 0 12px}.paper{max-width:960px;margin:0 auto}.question-grid{column-count:${config.columns};column-gap:32px}.print-question{break-inside:avoid;padding:0 0 20px;margin:0 0 20px;border-bottom:1px solid #ddd}</style></head><body><div class="paper"><h1>${escapeHtml(config.headerTitle)}</h1><h2>${escapeHtml(exam.title)}</h2><p>${escapeHtml(config.instructions)}</p><p>${escapeHtml(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></div></body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;background:#fff;padding:36px;color:#111}.paper{max-width:960px;margin:0 auto}h1,h2,h3{margin:0}h1{text-align:center;font-size:30px;margin-bottom:6px}h2{text-align:center;font-size:22px;margin-bottom:12px}.paper-meta{text-align:center;font-size:14px;color:#444;margin-bottom:24px}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:10px 12px;border-radius:8px;text-align:center;margin:0 0 18px 0}.question-grid{column-count:${config.columns};column-gap:28px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 18px;margin:0 0 18px;border-bottom:1px solid #ddd}h3{font-size:18px;line-height:1.45;margin-bottom:10px}.option-list{list-style:none;padding-left:0;margin:8px 0}.option-list li{display:flex;gap:8px;margin:5px 0}.option-label{min-width:20px;font-weight:700}.answer-block,.explanation-block{margin-top:8px}</style></head><body><div class="paper"><h1>${escapeHtml(config.headerTitle)}</h1><h2>${escapeHtml(exam.title)}</h2><p class="paper-meta">${escapeHtml(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${escapeHtml(config.instructions)}</p><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></div></body></html>`;
   }
 
   function downloadExamPaper(examId) {
