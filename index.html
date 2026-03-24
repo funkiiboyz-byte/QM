@@ -6,38 +6,22 @@
     <title>MegaPrep CMS Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-      window.MathJax = {
-        tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
-        svg: { fontCache: 'global' },
-      };
-    </script>
-    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
   </head>
-  <body>
+  <body data-page="dashboard">
     <div class="page-shell page-shell--dashboard">
       <header class="topbar topbar--dashboard">
         <div class="topbar-glow" aria-hidden="true"></div>
         <div class="brand brand--dashboard">
-          <div class="logo-mark logo-mark--3d" aria-hidden="true">
-            <span>M</span>
-          </div>
+          <div class="logo-mark logo-mark--3d" aria-hidden="true"><span>M</span></div>
           <div class="brand-copy brand-copy--stacked">
             <span class="brand-name">MegaPrep</span>
             <span class="brand-tag">CMS Dashboard</span>
           </div>
         </div>
-
         <div class="topbar-actions topbar-actions--dashboard">
-          <button class="topbar-button topbar-button--ghost" id="themeToggle" type="button">
-            Toggle Theme
-          </button>
+          <button class="topbar-button topbar-button--ghost" id="themeToggle" type="button">Toggle Theme</button>
           <a class="topbar-button topbar-button--ghost" href="admin-login.html">Admin Login</a>
           <a class="topbar-button topbar-button--solid" href="student-login.html">Student Login</a>
         </div>
@@ -48,341 +32,40 @@
           <div class="hero-copy__content hero-copy__content--dashboard">
             <p class="eyebrow">MegaPrep Workspace</p>
             <h1>Professional Exam & Question Maker CMS.</h1>
-            <p class="hero-description">
-              Create exams, manage questions, import JSON, render LaTeX, handle students, and monitor sessions from one responsive admin panel.
-            </p>
+            <p class="hero-description">Go to a dedicated module page to create exams, build questions, manage curriculum, print papers, and handle analytics.</p>
             <div class="hero-inline-meta">
               <span class="hero-inline-chip" id="sessionBadge">No active admin session</span>
               <span class="hero-inline-chip" id="storageBadge">Local workspace ready</span>
             </div>
           </div>
-
           <div class="hero-visual" aria-hidden="true">
             <div class="hero-orbit hero-orbit--one"></div>
             <div class="hero-orbit hero-orbit--two"></div>
             <div class="hero-visual__layer hero-visual__layer--back"></div>
             <div class="hero-visual__layer hero-visual__layer--mid"></div>
             <div class="hero-visual__panel hero-visual__panel--minimal">
-              <div class="hero-visual__panel-top">
-                <span>MegaPrep</span>
-                <strong>Exam Engine</strong>
-              </div>
-              <div class="hero-visual__panel-lines">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
+              <div class="hero-visual__panel-top"><span>MegaPrep</span><strong>Exam Engine</strong></div>
+              <div class="hero-visual__panel-lines"><span></span><span></span><span></span></div>
             </div>
           </div>
         </section>
 
         <section class="modules-shell" aria-label="MegaPrep CMS modules">
-          <div class="section-heading">
-            <div>
-              <p class="section-heading__eyebrow">Main modules</p>
-              <h2>Core actions</h2>
-            </div>
-          </div>
-
+          <div class="section-heading"><div><p class="section-heading__eyebrow">Main modules</p><h2>Open a page</h2></div></div>
           <div class="card-grid card-grid--interactive">
-            <button class="dashboard-card card-blue module-trigger" type="button" data-module="create-exam">
-              <div class="card-sheen" aria-hidden="true"></div>
-              <div class="card-icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-              </div>
-              <div class="card-body"><h2>Create Exam</h2><p>Build exam structure</p></div>
-              <div class="card-arrow" aria-hidden="true">→</div>
-            </button>
-
-            <button class="dashboard-card card-green module-trigger" type="button" data-module="handle-exams">
-              <div class="card-sheen" aria-hidden="true"></div>
-              <div class="card-icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-              </div>
-              <div class="card-body"><h2>Handle Exams</h2><p>Edit and publish exams</p></div>
-              <div class="card-arrow" aria-hidden="true">→</div>
-            </button>
-
-            <button class="dashboard-card card-orange module-trigger" type="button" data-module="question-bank">
-              <div class="card-sheen" aria-hidden="true"></div>
-              <div class="card-icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7.5A2.5 2.5 0 0 1 8.5 5H18v14H8.5A2.5 2.5 0 0 0 6 21z" /><path d="M6 7.5V21" /></svg>
-              </div>
-              <div class="card-body"><h2>Question Bank</h2><p>MCQ, CQ, JSON import</p></div>
-              <div class="card-arrow" aria-hidden="true">→</div>
-            </button>
-
-            <button class="dashboard-card card-purple module-trigger" type="button" data-module="students">
-              <div class="card-sheen" aria-hidden="true"></div>
-              <div class="card-icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 19v-1a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v1" /><path d="M10 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM20 19v-1a4 4 0 0 0-3-3.87" /><path d="M14 4a4 4 0 0 1 0 7.75" /></svg>
-              </div>
-              <div class="card-body"><h2>Students</h2><p>Create and assign learners</p></div>
-              <div class="card-arrow" aria-hidden="true">→</div>
-            </button>
-
-            <button class="dashboard-card card-red module-trigger" type="button" data-module="analytics">
-              <div class="card-sheen" aria-hidden="true"></div>
-              <div class="card-icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9" /><path d="M12 19V5" /><path d="M19 19v-7" /></svg>
-              </div>
-              <div class="card-body"><h2>Analytics</h2><p>Attempts and performance</p></div>
-              <div class="card-arrow" aria-hidden="true">→</div>
-            </button>
-
-            <button class="dashboard-card card-teal module-trigger" type="button" data-module="devices">
-              <div class="card-sheen" aria-hidden="true"></div>
-              <div class="card-icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="10" width="12" height="10" rx="2" /><path d="M9 10V8a3 3 0 0 1 6 0v2" /></svg>
-              </div>
-              <div class="card-body"><h2>Devices</h2><p>Session security</p></div>
-              <div class="card-arrow" aria-hidden="true">→</div>
-            </button>
-
-            <button class="dashboard-card card-slate module-trigger" type="button" data-module="passwords">
-              <div class="card-sheen" aria-hidden="true"></div>
-              <div class="card-icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3" /><rect x="5" y="10" width="14" height="10" rx="2" /></svg>
-              </div>
-              <div class="card-body"><h2>Password</h2><p>Manage admin password</p></div>
-              <div class="card-arrow" aria-hidden="true">→</div>
-            </button>
-          </div>
-        </section>
-
-        <section class="workspace-shell">
-          <div class="workspace-toolbar">
-            <div>
-              <p class="section-heading__eyebrow">Workspace</p>
-              <h2 id="workspaceTitle">Create Exam</h2>
-            </div>
-            <div class="workspace-actions">
-              <button type="button" class="toolbar-button" id="exportDataBtn">Export Data</button>
-              <label class="toolbar-button toolbar-button--file">
-                Import Data
-                <input id="importDataFile" type="file" accept="application/json" hidden />
-              </label>
-            </div>
-          </div>
-
-          <div class="module-stack">
-            <section class="module-panel is-active" id="module-create-exam">
-              <div class="panel-grid panel-grid--form">
-                <div class="panel-card">
-                  <div class="panel-card__header">
-                    <h3>Create Exam</h3>
-                    <p>Configure exam metadata and dynamic sections.</p>
-                  </div>
-                  <form id="examForm" class="app-form app-form--two-col">
-                    <input type="hidden" id="examId" />
-                    <label>Course<input id="examCourse" required type="text" placeholder="Course name" /></label>
-                    <label>Exam Number<input id="examNumber" required type="text" placeholder="Exam number" /></label>
-                    <label class="full-span">Exam Title<input id="examTitle" required type="text" placeholder="Exam title" /></label>
-                    <label>Duration (minutes)<input id="examDuration" required type="number" min="1" placeholder="Duration" /></label>
-                    <label>Full Marks<input id="examMarks" required type="number" min="1" placeholder="Marks" /></label>
-                    <label>Exam Type<select id="examType"><option value="MCQ">MCQ</option><option value="CQ">CQ</option></select></label>
-                    <label>Exam Date<input id="examDate" type="date" required /></label>
-                    <label>Start Time<input id="examStartTime" type="time" required /></label>
-                    <label>End Time<input id="examEndTime" type="time" required /></label>
-                    <div class="full-span section-builder">
-                      <div class="section-builder__head">
-                        <h4>Exam Sections</h4>
-                        <button id="addSectionBtn" class="toolbar-button" type="button">Add Section</button>
-                      </div>
-                      <div id="sectionList" class="dynamic-list"></div>
-                    </div>
-                    <div class="full-span app-form__actions">
-                      <button type="submit" class="submit-button">Save & Create Exam</button>
-                    </div>
-                  </form>
-                </div>
-                <div class="panel-card">
-                  <div class="panel-card__header">
-                    <h3>Recent Exams</h3>
-                    <p>Quick overview of saved exams.</p>
-                  </div>
-                  <div id="examSummaryList" class="entity-list"></div>
-                </div>
-              </div>
-            </section>
-
-            <section class="module-panel" id="module-question-bank">
-              <div class="panel-grid panel-grid--question">
-                <div class="panel-card">
-                  <div class="panel-card__header">
-                    <h3>Question Bank</h3>
-                    <p>Create MCQ/CQ items, preview LaTeX, and import JSON.</p>
-                  </div>
-                  <div class="segmented-control" id="questionModeTabs">
-                    <button type="button" class="segmented-control__btn is-active" data-mode="mcq">MCQ</button>
-                    <button type="button" class="segmented-control__btn" data-mode="cq">CQ</button>
-                    <button type="button" class="segmented-control__btn" data-mode="json">JSON Import</button>
-                  </div>
-
-                  <form id="mcqForm" class="app-form mode-panel app-form--single is-active">
-                    <label>Course<input id="mcqCourse" type="text" placeholder="Course name" /></label>
-                    <label>Section<input id="mcqSection" type="text" placeholder="Section name" /></label>
-                    <label>Question Text<textarea id="mcqQuestion" rows="4" placeholder="Write question text with LaTeX if needed"></textarea></label>
-                    <label>Explanation<textarea id="mcqExplanation" rows="3" placeholder="Write explanation"></textarea></label>
-                    <label>Tags<input id="mcqTags" type="text" placeholder="topic, difficulty" /></label>
-                    <div class="field-row">
-                      <label>Difficulty<select id="mcqDifficulty"><option>Easy</option><option>Medium</option><option>Hard</option></select></label>
-                      <label>Image<input id="mcqImage" type="file" accept="image/*" /></label>
-                    </div>
-                    <div class="section-builder">
-                      <div class="section-builder__head">
-                        <h4>Options</h4>
-                        <button id="addOptionBtn" type="button" class="toolbar-button">Add Option</button>
-                      </div>
-                      <div id="optionList" class="dynamic-list"></div>
-                    </div>
-                    <div class="app-form__actions">
-                      <button type="submit" class="submit-button">Save MCQ</button>
-                    </div>
-                  </form>
-
-                  <form id="cqForm" class="app-form mode-panel app-form--single">
-                    <label>Course<input id="cqCourse" type="text" placeholder="Course name" /></label>
-                    <label>Section<input id="cqSection" type="text" placeholder="Section name" /></label>
-                    <label>Stimulus / Passage<textarea id="cqStimulus" rows="4" placeholder="Write passage or stimulus"></textarea></label>
-                    <label>Image<input id="cqImage" type="file" accept="image/*" /></label>
-                    <div class="section-builder">
-                      <div class="section-builder__head">
-                        <h4>Sub Questions</h4>
-                        <button id="addSubQuestionBtn" type="button" class="toolbar-button">Add Sub Question</button>
-                      </div>
-                      <div id="subQuestionList" class="dynamic-list"></div>
-                    </div>
-                    <div class="app-form__actions">
-                      <button type="submit" class="submit-button">Save CQ</button>
-                    </div>
-                  </form>
-
-                  <div id="jsonImportPanel" class="mode-panel">
-                    <div class="app-form app-form--single">
-                      <label>Paste JSON<textarea id="jsonImportText" rows="10" placeholder='{"questions":[...]}'></textarea></label>
-                      <div class="field-row">
-                        <label class="toolbar-button toolbar-button--file">
-                          Upload JSON
-                          <input id="jsonImportFile" type="file" accept="application/json" hidden />
-                        </label>
-                        <button id="importJsonBtn" type="button" class="submit-button">Import Questions</button>
-                      </div>
-                      <p id="jsonImportMessage" class="inline-message"></p>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="panel-card">
-                  <div class="panel-card__header">
-                    <h3>Live Preview</h3>
-                    <p>Question and explanation preview with LaTeX rendering.</p>
-                  </div>
-                  <div id="questionPreview" class="preview-surface"></div>
-                  <div class="panel-card__header panel-card__header--sub">
-                    <h3>Saved Questions</h3>
-                  </div>
-                  <div id="questionList" class="entity-list"></div>
-                </div>
-              </div>
-            </section>
-
-            <section class="module-panel" id="module-handle-exams">
-              <div class="panel-card">
-                <div class="panel-card__header">
-                  <h3>Handle Exams</h3>
-                  <p>Edit exams, assign questions, and publish or delete records.</p>
-                </div>
-                <div id="examManagerList" class="entity-list"></div>
-              </div>
-            </section>
-
-            <section class="module-panel" id="module-students">
-              <div class="panel-grid panel-grid--form">
-                <div class="panel-card">
-                  <div class="panel-card__header">
-                    <h3>Create Student</h3>
-                    <p>Create individual students or upload CSV.</p>
-                  </div>
-                  <form id="studentForm" class="app-form app-form--two-col">
-                    <label>Full name<input id="studentName" required type="text" placeholder="Student name" /></label>
-                    <label>Student ID<input id="studentStudentId" required type="text" placeholder="Student ID" /></label>
-                    <label>Email<input id="studentEmail" required type="email" placeholder="Email address" /></label>
-                    <label>Course<input id="studentCourse" type="text" placeholder="Assigned course" /></label>
-                    <div class="full-span app-form__actions"><button class="submit-button" type="submit">Create Student</button></div>
-                  </form>
-                  <div class="divider"></div>
-                  <div class="app-form app-form--single">
-                    <label>Bulk Upload CSV<textarea id="studentCsvText" rows="6" placeholder="name,studentId,email,course"></textarea></label>
-                    <label class="toolbar-button toolbar-button--file">
-                      Upload CSV
-                      <input id="studentCsvFile" type="file" accept=".csv,text/csv" hidden />
-                    </label>
-                    <button id="importStudentsBtn" class="submit-button" type="button">Import Students</button>
-                  </div>
-                </div>
-                <div class="panel-card">
-                  <div class="panel-card__header"><h3>Student Directory</h3></div>
-                  <div id="studentList" class="entity-list"></div>
-                </div>
-              </div>
-            </section>
-
-            <section class="module-panel" id="module-analytics">
-              <div class="panel-grid panel-grid--analytics">
-                <div class="panel-card">
-                  <div class="panel-card__header">
-                    <h3>Record Attempt</h3>
-                    <p>Track exam attempts and question accuracy.</p>
-                  </div>
-                  <form id="attemptForm" class="app-form app-form--two-col">
-                    <label>Exam<select id="attemptExam"></select></label>
-                    <label>Student<select id="attemptStudent"></select></label>
-                    <label>Score<input id="attemptScore" type="number" min="0" placeholder="Score" /></label>
-                    <label>Total Marks<input id="attemptTotal" type="number" min="1" placeholder="Total marks" /></label>
-                    <label class="full-span">Correct Question IDs<textarea id="attemptCorrectIds" rows="3" placeholder="Comma separated question IDs"></textarea></label>
-                    <label class="full-span">Incorrect Question IDs<textarea id="attemptIncorrectIds" rows="3" placeholder="Comma separated question IDs"></textarea></label>
-                    <div class="full-span app-form__actions"><button class="submit-button" type="submit">Save Attempt</button></div>
-                  </form>
-                </div>
-                <div class="panel-card panel-card--summary">
-                  <div id="analyticsSummary" class="summary-grid"></div>
-                </div>
-                <div class="panel-card"><canvas id="analyticsChart"></canvas></div>
-                <div class="panel-card"><canvas id="accuracyChart"></canvas></div>
-              </div>
-            </section>
-
-            <section class="module-panel" id="module-devices">
-              <div class="panel-card">
-                <div class="panel-card__header">
-                  <h3>Devices & Sessions</h3>
-                  <p>Review logged devices and force logout active sessions.</p>
-                </div>
-                <div id="deviceList" class="entity-list"></div>
-              </div>
-            </section>
-
-            <section class="module-panel" id="module-passwords">
-              <div class="panel-card panel-card--narrow">
-                <div class="panel-card__header">
-                  <h3>Password Management</h3>
-                  <p>Update stored admin password for the local workspace.</p>
-                </div>
-                <form id="passwordForm" class="app-form app-form--single">
-                  <label>Current Password<input id="currentPassword" type="password" placeholder="Current password" /></label>
-                  <label>New Password<input id="newPassword" type="password" placeholder="New password" /></label>
-                  <label>Confirm Password<input id="confirmPassword" type="password" placeholder="Confirm new password" /></label>
-                  <div class="app-form__actions"><button class="submit-button" type="submit">Update Password</button></div>
-                </form>
-              </div>
-            </section>
+            <a class="dashboard-card card-blue module-link" href="create-exam.html"><div class="card-sheen" aria-hidden="true"></div><div class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></div><div class="card-body"><h2>Create Exam</h2><p>Exam setup page</p></div><div class="card-arrow" aria-hidden="true">→</div></a>
+            <a class="dashboard-card card-green module-link" href="handle-exams.html"><div class="card-sheen" aria-hidden="true"></div><div class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></div><div class="card-body"><h2>Handle Exams</h2><p>Edit, export, print</p></div><div class="card-arrow" aria-hidden="true">→</div></a>
+            <a class="dashboard-card card-orange module-link" href="question-bank.html"><div class="card-sheen" aria-hidden="true"></div><div class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7.5A2.5 2.5 0 0 1 8.5 5H18v14H8.5A2.5 2.5 0 0 0 6 21z" /><path d="M6 7.5V21" /></svg></div><div class="card-body"><h2>Question Bank</h2><p>MCQ, CQ, JSON prompt</p></div><div class="card-arrow" aria-hidden="true">→</div></a>
+            <a class="dashboard-card card-purple module-link" href="students.html"><div class="card-sheen" aria-hidden="true"></div><div class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 19v-1a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v1" /><path d="M10 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM20 19v-1a4 4 0 0 0-3-3.87" /><path d="M14 4a4 4 0 0 1 0 7.75" /></svg></div><div class="card-body"><h2>Students</h2><p>Students management</p></div><div class="card-arrow" aria-hidden="true">→</div></a>
+            <a class="dashboard-card card-red module-link" href="analytics.html"><div class="card-sheen" aria-hidden="true"></div><div class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9" /><path d="M12 19V5" /><path d="M19 19v-7" /></svg></div><div class="card-body"><h2>Analytics</h2><p>Attempts and charts</p></div><div class="card-arrow" aria-hidden="true">→</div></a>
+            <a class="dashboard-card card-teal module-link" href="devices.html"><div class="card-sheen" aria-hidden="true"></div><div class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="10" width="12" height="10" rx="2" /><path d="M9 10V8a3 3 0 0 1 6 0v2" /></svg></div><div class="card-body"><h2>Devices</h2><p>Session security</p></div><div class="card-arrow" aria-hidden="true">→</div></a>
+            <a class="dashboard-card card-slate module-link" href="passwords.html"><div class="card-sheen" aria-hidden="true"></div><div class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3" /><rect x="5" y="10" width="14" height="10" rx="2" /></svg></div><div class="card-body"><h2>Password</h2><p>Password management</p></div><div class="card-arrow" aria-hidden="true">→</div></a>
           </div>
         </section>
       </main>
     </div>
-
     <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+    <script src="curriculum.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 (() => {
-  const STORAGE_KEY = 'megaprep-cms-state-v1';
+  const STORAGE_KEY = 'megaprep-cms-state-v2';
   const SESSION_KEY = 'megaprep-session-v1';
 
   document.addEventListener('DOMContentLoaded', init);

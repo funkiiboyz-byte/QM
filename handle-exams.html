@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Handle Exams | MegaPrep CMS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body data-page="handle-exams">
+<div class="page-shell">
+<header class="topbar topbar--dashboard">
+<div class="topbar-glow" aria-hidden="true">
+</div>
+<div class="brand brand--dashboard">
+<div class="logo-mark logo-mark--3d" aria-hidden="true">
+<span>M</span>
+</div>
+<div class="brand-copy brand-copy--stacked">
+<span class="brand-name">MegaPrep</span>
+<span class="brand-tag">Handle Exams</span>
+</div>
+</div>
+<div class="topbar-actions topbar-actions--dashboard">
+<button class="topbar-button topbar-button--ghost" id="themeToggle" type="button">Toggle Theme</button>
+<a class="topbar-button topbar-button--ghost" href="index.html">Dashboard</a>
+<a class="topbar-button topbar-button--solid" href="create-exam.html">Create Exam</a>
+</div>
+</header>
+<main class="content-area app-layout">
+<section class="workspace-shell">
+<div class="workspace-toolbar">
+<div>
+<p class="section-heading__eyebrow">Handle Exams</p>
+<h2>Exam Operations</h2>
+</div>
+<div class="workspace-actions">
+<button type="button" class="toolbar-button" id="exportDataBtn">Export Data</button>
+<label class="toolbar-button toolbar-button--file">Import Data<input id="importDataFile" type="file" accept="application/json" hidden />
+</label>
+</div>
+</div>
+<div class="panel-grid panel-grid--form">
+<div class="panel-card">
+<div class="panel-card__header">
+<h3>Exam Manager</h3>
+<p>Edit, publish, download, print, and customize paper output.</p>
+</div>
+<div id="examManagerList" class="entity-list">
+</div>
+</div>
+<div class="panel-card">
+<div class="panel-card__header">
+<h3>Print Format</h3>
+<p>Customize printed/downloaded question paper format.</p>
+</div>
+<form id="printConfigForm" class="app-form app-form--single">
+<label>Header Title<input id="printHeaderTitle" type="text" placeholder="Institution / Exam Title" />
+</label>
+<label>Instructions<textarea id="printInstructions" rows="4" placeholder="Exam instructions">
+</textarea>
+</label>
+<div class="field-row">
+<label>Question Number Prefix<input id="printNumberPrefix" type="text" placeholder="Q" />
+</label>
+<label>Columns<select id="printColumns">
+<option value="1">1 Column</option>
+<option value="2">2 Columns</option>
+</select>
+</label>
+</div>
+<label class="checkbox-row checkbox-card">
+<input id="printShowAnswers" type="checkbox" />
+<span>Include answers in output</span>
+</label>
+<label class="checkbox-row checkbox-card">
+<input id="printShowExplanation" type="checkbox" />
+<span>Include explanations in output</span>
+</label>
+</form>
+<div id="printPreviewMeta" class="preview-surface preview-surface--small">
+</div>
+</div>
+</div>
+</section>
+</main>
+</div>
+<div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true">
+</div>
+<script src="curriculum.js">
+</script>
+<script src="app.js">
+</script>
+</body>
+</html>

@@ -1736,3 +1736,11 @@ canvas {
     grid-template-columns: 1fr;
   }
 }
+
+.module-link {
+  text-decoration: none;
+}
+
+.preview-surface--small {
+  min-height: 180px;
+}
