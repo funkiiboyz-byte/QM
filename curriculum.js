@@ -9,6 +9,10 @@ window.MEGAPREP_CURRICULUM = {
       ICT: ['Digital Devices', 'Number System', 'Web Design', 'Spreadsheet', 'Programming Basics', 'Database & Networking'],
       'Bangladesh and Global Studies': ['History & Heritage', 'Socialization', 'Economy', 'Civics & Governance', 'Geography & Climate'],
       Religion: ['Aqidah', 'Ibadah', 'Akhlaq', 'Quran-Hadith', 'Moral Values'],
+      Islam: ['Aqidah', 'Ibadah', 'Akhlaq', 'Quran-Hadith', 'Islamic History'],
+      Hinduism: ['Dharma', 'Morality', 'Rituals', 'Scriptures', 'Philosophy'],
+      Buddhism: ['Tripitaka', 'Moral Teachings', 'Buddhist History', 'Meditation', 'Ethics'],
+      Christianity: ['Bible Studies', 'Life of Jesus', 'Church History', 'Christian Ethics', 'Worship'],
       Science: ['Scientific Process', 'Living World', 'Matter', 'Energy', 'Earth & Space'],
     },
     Science: {
@@ -36,6 +40,7 @@ window.MEGAPREP_CURRICULUM = {
       'English 1st Paper': ['Reading Skills', 'Information Transfer', 'Summary', 'Flow Chart', 'Paragraph', 'Essay'],
       'English 2nd Paper': ['Grammar', 'Narration', 'Modifiers', 'Sentence Connectors', 'Formal Letter', 'Application'],
       ICT: ['Communication Systems', 'Number System & Logic', 'HTML CSS', 'C Programming', 'Database', 'Networking & Cyber Security'],
+      Statistics: ['Data Presentation', 'Measures of Central Tendency', 'Dispersion', 'Probability', 'Correlation & Regression'],
     },
     Science: {
       Physics: ['Physical World & Measurement', 'Vector', 'Dynamics', 'Work Energy Power', 'Gravitation', 'Simple Harmonic Motion', 'Wave', 'Thermodynamics', 'Modern Physics', 'Semiconductor'],

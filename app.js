@@ -28,6 +28,7 @@
   let questionMode = 'mcq';
   let mcqImageData = '';
   let cqImageData = '';
+  let selectedQuestionExamId = '';
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -285,6 +286,7 @@
 
   function initQuestionBankPage() {
     bindCurriculumSelectors({ level: 'qbLevel', group: 'qbGroup', subject: 'qbSubject', topic: 'qbTopic' });
+    bindQuestionExamTarget();
     document.getElementById('questionModeTabs').addEventListener('click', switchQuestionMode);
     document.getElementById('addOptionBtn').addEventListener('click', () => { document.getElementById('optionList').appendChild(createOptionRow()); updateOptionIndexes(); updateQuestionPreview(); });
     document.getElementById('addSubQuestionBtn').addEventListener('click', () => { document.getElementById('subQuestionList').appendChild(createSubQuestionRow()); updateQuestionPreview(); });
@@ -361,7 +363,9 @@
     const options = [...document.querySelectorAll('.option-row')].map((row) => ({ text: row.querySelector('.option-row__text').value.trim(), correct: row.querySelector('.option-row__correct').checked })).filter((item) => item.text);
     const correct = options.findIndex((item) => item.correct);
     if (!options.length || correct < 0) return showToast('Add options and select the correct answer.', 'error');
-    state.questions.unshift({ id: uid('question'), type: 'mcq', level: document.getElementById('qbLevel').value, group: document.getElementById('qbGroup').value, subject: document.getElementById('qbSubject').value, topic: document.getElementById('qbTopic').value, section: document.getElementById('qbTopic').value, question: document.getElementById('mcqQuestion').value.trim(), options: options.map((item) => item.text), correct, explanation: document.getElementById('mcqExplanation').value.trim(), image: mcqImageData, createdAt: new Date().toISOString() });
+    const question = { id: uid('question'), type: 'mcq', level: document.getElementById('qbLevel').value, group: document.getElementById('qbGroup').value, subject: document.getElementById('qbSubject').value, topic: document.getElementById('qbTopic').value, section: document.getElementById('qbTopic').value, question: document.getElementById('mcqQuestion').value.trim(), options: options.map((item) => item.text), correct, explanation: document.getElementById('mcqExplanation').value.trim(), image: mcqImageData, createdAt: new Date().toISOString() };
+    state.questions.unshift(question);
+    linkQuestionToSelectedExam(question.id);
     saveState();
     event.target.reset();
     mcqImageData = '';
@@ -369,13 +373,15 @@
     resetOptions();
     renderQuestions();
     updateQuestionPreview();
-    showToast('MCQ saved.');
+    showToast(selectedQuestionExamId ? 'MCQ saved and linked to selected exam.' : 'MCQ saved.');
   }
 
   function saveCQ(event) {
     event.preventDefault();
     const subQuestions = [...document.querySelectorAll('.sub-question-row')].map((row) => ({ label: row.querySelector('.sub-question-row__label').value.trim(), prompt: row.querySelector('.sub-question-row__prompt').value.trim(), answer: row.querySelector('.sub-question-row__answer').value.trim() })).filter((item) => item.prompt);
-    state.questions.unshift({ id: uid('question'), type: 'cq', level: document.getElementById('qbLevel').value, group: document.getElementById('qbGroup').value, subject: document.getElementById('qbSubject').value, topic: document.getElementById('qbTopic').value, section: document.getElementById('qbTopic').value, stimulus: document.getElementById('cqStimulus').value.trim(), subQuestions, image: cqImageData, createdAt: new Date().toISOString() });
+    const question = { id: uid('question'), type: 'cq', level: document.getElementById('qbLevel').value, group: document.getElementById('qbGroup').value, subject: document.getElementById('qbSubject').value, topic: document.getElementById('qbTopic').value, section: document.getElementById('qbTopic').value, stimulus: document.getElementById('cqStimulus').value.trim(), subQuestions, image: cqImageData, createdAt: new Date().toISOString() };
+    state.questions.unshift(question);
+    linkQuestionToSelectedExam(question.id);
     saveState();
     event.target.reset();
     cqImageData = '';
@@ -383,7 +389,7 @@
     resetSubQuestions();
     renderQuestions();
     updateQuestionPreview();
-    showToast('CQ saved.');
+    showToast(selectedQuestionExamId ? 'CQ saved and linked to selected exam.' : 'CQ saved.');
   }
 
   function importQuestionsFromJson() {
@@ -395,7 +401,7 @@
     }
 
     try {
-      const payload = JSON.parse(raw);
+      const payload = parseJsonImportPayload(raw);
       const defaults = {
         level: document.getElementById('qbLevel').value,
         group: document.getElementById('qbGroup').value,
@@ -421,6 +427,7 @@
           return;
         }
         state.questions.unshift(normalized);
+        linkQuestionToSelectedExam(normalized.id);
         summary.imported += 1;
       });
 
@@ -433,6 +440,38 @@
       message.textContent = error?.message || 'Invalid JSON format.';
       showToast('JSON validation failed.', 'error');
     }
+  }
+
+  function parseJsonImportPayload(raw) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      const cleaned = raw
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .replace(/,\s*([}\]])/g, '$1');
+      return JSON.parse(cleaned);
+    }
+  }
+
+  function bindQuestionExamTarget() {
+    const select = document.getElementById('qbExamTarget');
+    if (!select) return;
+    const current = selectedQuestionExamId;
+    const options = ['<option value="">Only save in Question Bank</option>'].concat(
+      state.exams.map((exam) => `<option value="${exam.id}">${escapeHtml(exam.title)} · ${escapeHtml(exam.subject || '')}</option>`),
+    );
+    select.innerHTML = options.join('');
+    if (state.exams.some((exam) => exam.id === current)) select.value = current;
+    select.addEventListener('change', () => { selectedQuestionExamId = select.value; });
+    selectedQuestionExamId = select.value;
+  }
+
+  function linkQuestionToSelectedExam(questionId) {
+    if (!selectedQuestionExamId) return;
+    const exam = findExam(selectedQuestionExamId);
+    if (!exam) return;
+    exam.questionIds = [...new Set([...(exam.questionIds || []), questionId])];
   }
 
   function normalizeImportedQuestion(question, defaults) {
@@ -543,8 +582,57 @@
   }
 
   function initHandleExamsPage() {
+    bindCurriculumFilterSelectors({ level: 'examFilterLevel', group: 'examFilterGroup', subject: 'examFilterSubject', topic: 'examFilterTopic' });
+    bindExamFilters();
     bindPrintConfig();
     renderExamManager();
+  }
+
+  function bindCurriculumFilterSelectors(ids) {
+    const level = document.getElementById(ids.level);
+    const group = document.getElementById(ids.group);
+    const subject = document.getElementById(ids.subject);
+    const topic = document.getElementById(ids.topic);
+    if (!level || !group || !subject || !topic) return;
+
+    const withAll = (items) => ['<option value="">All</option>'].concat(items.map((item) => `<option value="${item}">${item}</option>`)).join('');
+    const renderGroups = () => {
+      level.innerHTML = withAll(Object.keys(CURRICULUM));
+      updateGroups();
+    };
+    const updateGroups = () => {
+      const groups = level.value ? Object.keys(CURRICULUM[level.value] || {}) : [...new Set(Object.values(CURRICULUM).flatMap((item) => Object.keys(item || {})))];
+      group.innerHTML = withAll(groups);
+      updateSubjects();
+    };
+    const updateSubjects = () => {
+      let subjects = [];
+      if (level.value && group.value) subjects = Object.keys(CURRICULUM[level.value]?.[group.value] || {});
+      else if (level.value) subjects = [...new Set(Object.values(CURRICULUM[level.value] || {}).flatMap((item) => Object.keys(item || {})))];
+      else subjects = [...new Set(Object.values(CURRICULUM).flatMap((lvl) => Object.values(lvl || {}).flatMap((grp) => Object.keys(grp || {}))))];
+      subject.innerHTML = withAll(subjects);
+      updateTopics();
+    };
+    const updateTopics = () => {
+      let topics = [];
+      if (level.value && group.value && subject.value) topics = CURRICULUM[level.value]?.[group.value]?.[subject.value] || [];
+      else if (level.value && group.value) topics = [...new Set(Object.values(CURRICULUM[level.value]?.[group.value] || {}).flat())];
+      else topics = [...new Set(Object.values(CURRICULUM).flatMap((lvl) => Object.values(lvl || {}).flatMap((grp) => Object.values(grp || {}).flat())))];
+      topic.innerHTML = withAll(topics);
+    };
+
+    level.addEventListener('change', updateGroups);
+    group.addEventListener('change', updateSubjects);
+    subject.addEventListener('change', updateTopics);
+    renderGroups();
+  }
+
+  function bindExamFilters() {
+    ['examFilterLevel', 'examFilterGroup', 'examFilterSubject', 'examFilterTopic'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', renderExamManager);
+    });
   }
 
   function bindPrintConfig() {
@@ -578,7 +666,18 @@
     const target = document.getElementById('examManagerList');
     if (!target) return;
     if (!state.exams.length) return target.innerHTML = emptyState('No exams available.');
-    target.innerHTML = state.exams.map((exam) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${state.questions.length ? state.questions.filter((q) => !exam.subject || q.subject === exam.subject).map((question) => `<label class="assignment-item"><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label>`).join('') : '<p class="muted-copy">Create questions first.</p>'}</div></div><div class="entity-actions"><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-publish-exam="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-download-exam="${exam.id}">Download</button><button class="toolbar-button" data-print-exam="${exam.id}">Print</button><button class="toolbar-button toolbar-button--danger" data-delete-exam="${exam.id}">Delete</button></div></article>`).join('');
+    const filters = getQuestionFilters();
+    target.innerHTML = state.exams.map((exam) => {
+      const filteredQuestions = state.questions.filter((question) => {
+        if (exam.subject && question.subject && question.subject !== exam.subject) return false;
+        if (filters.level && question.level !== filters.level) return false;
+        if (filters.group && question.group !== filters.group) return false;
+        if (filters.subject && question.subject !== filters.subject) return false;
+        if (filters.topic && question.topic !== filters.topic) return false;
+        return true;
+      });
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<label class="assignment-item"><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label>`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div><div class="entity-actions"><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-publish-exam="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-download-exam="${exam.id}">Download</button><button class="toolbar-button" data-print-exam="${exam.id}">Print</button><button class="toolbar-button toolbar-button--danger" data-delete-exam="${exam.id}">Delete</button></div></article>`;
+    }).join('');
     target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => { const exam = findExam(button.dataset.publishExam); exam.published = !exam.published; saveState(); renderExamManager(); }));
     target.querySelectorAll('[data-delete-exam]').forEach((button) => button.addEventListener('click', () => { state.exams = state.exams.filter((item) => item.id !== button.dataset.deleteExam); state.attempts = state.attempts.filter((attempt) => attempt.examId !== button.dataset.deleteExam); saveState(); renderExamManager(); showToast('Exam deleted.'); }));
     target.querySelectorAll('[data-download-exam]').forEach((button) => button.addEventListener('click', () => downloadExamPaper(button.dataset.downloadExam)));
@@ -592,21 +691,51 @@
     }));
   }
 
+  function getQuestionFilters() {
+    const read = (id) => document.getElementById(id)?.value || '';
+    return {
+      level: read('examFilterLevel'),
+      group: read('examFilterGroup'),
+      subject: read('examFilterSubject'),
+      topic: read('examFilterTopic'),
+    };
+  }
+
   function buildExamPaperHtml(examId) {
     const exam = findExam(examId);
     const config = state.settings.printConfig;
     const questions = exam.questionIds.map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
     const list = questions.map((question, index) => {
       const number = `${index + 1}`;
-      const title = question.question || question.stimulus || '';
+      const title = latexToPlainText(question.question || question.stimulus || '');
       const body = question.type === 'cq'
-        ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${escapeHtml(item.prompt || '')}${config.showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${escapeHtml(item.answer || '')}</div>` : ''}</div>`).join('')
-        : `<ul class="option-list">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${escapeHtml(option)}</span></li>`).join('')}</ul>${config.showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${escapeHtml((question.options || [])[question.correct] || '')}</p>` : ''}`;
-      const explanation = config.showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${escapeHtml(question.explanation)}</p>` : '';
+        ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${escapeHtml(latexToPlainText(item.prompt || ''))}${config.showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${escapeHtml(latexToPlainText(item.answer || ''))}</div>` : ''}</div>`).join('')
+        : `<ul class="option-list">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${escapeHtml(latexToPlainText(option))}</span></li>`).join('')}</ul>${config.showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${escapeHtml(latexToPlainText((question.options || [])[question.correct] || ''))}</p>` : ''}`;
+      const explanation = config.showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${escapeHtml(latexToPlainText(question.explanation))}</p>` : '';
       return `<article class="print-question"><h3>${number}. ${escapeHtml(title)}</h3>${body}${explanation}</article>`;
     }).join('');
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;background:#fff;padding:36px;color:#111}.paper{max-width:960px;margin:0 auto}h1,h2,h3{margin:0}h1{text-align:center;font-size:30px;margin-bottom:6px}h2{text-align:center;font-size:22px;margin-bottom:12px}.paper-meta{text-align:center;font-size:14px;color:#444;margin-bottom:24px}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:10px 12px;border-radius:8px;text-align:center;margin:0 0 18px 0}.question-grid{column-count:${config.columns};column-gap:28px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 18px;margin:0 0 18px;border-bottom:1px solid #ddd}h3{font-size:18px;line-height:1.45;margin-bottom:10px}.option-list{list-style:none;padding-left:0;margin:8px 0}.option-list li{display:flex;gap:8px;margin:5px 0}.option-label{min-width:20px;font-weight:700}.answer-block,.explanation-block{margin-top:8px}</style></head><body><div class="paper"><h1>${escapeHtml(config.headerTitle)}</h1><h2>${escapeHtml(exam.title)}</h2><p class="paper-meta">${escapeHtml(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${escapeHtml(config.instructions)}</p><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></div></body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;background:#fff;padding:36px;color:#111}.paper{max-width:960px;margin:0 auto}h1,h2,h3{margin:0}h1{text-align:center;font-size:30px;margin-bottom:6px}h2{text-align:center;font-size:22px;margin-bottom:12px}.paper-meta{text-align:center;font-size:14px;color:#444;margin-bottom:24px}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:10px 12px;border-radius:8px;text-align:center;margin:0 0 18px 0}.question-grid{column-count:${config.columns};column-gap:28px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 18px;margin:0 0 18px;border-bottom:1px solid #ddd}h3{font-size:18px;line-height:1.45;margin-bottom:10px}.option-list{list-style:none;padding-left:0;margin:8px 0}.option-list li{display:flex;gap:8px;margin:5px 0}.option-label{min-width:20px;font-weight:700}.answer-block,.explanation-block{margin-top:8px}</style></head><body><div class="paper"><h1>${escapeHtml(latexToPlainText(config.headerTitle))}</h1><h2>${escapeHtml(latexToPlainText(exam.title))}</h2><p class="paper-meta">${escapeHtml(latexToPlainText(exam.subject))} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${escapeHtml(latexToPlainText(config.instructions))}</p><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></div></body></html>`;
+  }
+
+  function latexToPlainText(text) {
+    return String(text || '')
+      .replace(/\\\((.*?)\\\)/g, '$1')
+      .replace(/\\\[(.*?)\\\]/g, '$1')
+      .replace(/\$\$(.*?)\$\$/g, '$1')
+      .replace(/\$(.*?)\$/g, '$1')
+      .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '$1/$2')
+      .replace(/\\sqrt\{([^}]*)\}/g, 'sqrt($1)')
+      .replace(/\\times/g, 'x')
+      .replace(/\\cdot/g, '.')
+      .replace(/\\leq/g, '<=')
+      .replace(/\\geq/g, '>=')
+      .replace(/\\neq/g, '!=')
+      .replace(/\\%/g, '%')
+      .replace(/\\[a-zA-Z]+/g, '')
+      .replace(/[{}]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   function downloadExamPaper(examId) {
