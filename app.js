@@ -754,6 +754,14 @@
       if (!normalized.length) return '<div class="preview-block"><p>Could not build preview from provided JSON.</p></div>';
       const blocks = normalized.map((question, index) => {
         if (question.type === 'cq') {
+          const subs = (question.subQuestions || []).map((sub) => `<li><strong>${escapeHtml(sub.label || '')}.</strong> ${escapeHtml(latexToPlainText(sub.prompt || ''))}<br/><span class="muted-copy">Answer: ${escapeHtml(latexToPlainText(sub.answer || ''))}</span></li>`).join('');
+          return `<div class="preview-sub"><strong>Q${index + 1}. ${escapeHtml(latexToPlainText(question.stimulus || ''))}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="CQ" />` : ''}<ul>${subs || '<li>No sub-questions found.</li>'}</ul></div>`;
+        }
+        const options = (question.options || []).map((option, optionIndex) => {
+          const isCorrect = optionIndex === question.correct;
+          return `<li>${String.fromCharCode(65 + optionIndex)}. ${escapeHtml(latexToPlainText(option))}${isCorrect ? ' <strong>(Correct)</strong>' : ''}</li>`;
+        }).join('');
+        return `<div class="preview-sub"><strong>Q${index + 1}. ${escapeHtml(latexToPlainText(question.question || ''))}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="MCQ" />` : ''}<ol>${options || '<li>No options found.</li>'}</ol>${question.explanation ? `<p><strong>Explanation:</strong> ${escapeHtml(latexToPlainText(question.explanation))}</p>` : ''}</div>`;
 
       }).join('');
       return `<div class="preview-block"><p>JSON Preview (${normalized.length} question${normalized.length > 1 ? 's' : ''})</p>${blocks}</div>`;
@@ -911,6 +919,7 @@
     target.querySelectorAll('[data-print-exam]').forEach((button) => button.addEventListener('click', () => printExamPaper(button.dataset.printExam)));
     target.querySelectorAll('input[data-exam-id]').forEach((checkbox) => checkbox.addEventListener('change', () => {
       const exam = findExam(checkbox.dataset.examId);
+      if (!exam) return showToast('Exam not found.', 'error');
       exam.questionIds = checkbox.checked ? [...new Set([...exam.questionIds, checkbox.dataset.questionId])] : exam.questionIds.filter((id) => id !== checkbox.dataset.questionId);
       saveState();
       renderExamManager();
@@ -930,6 +939,9 @@
 
   function buildExamPaperHtml(examId) {
     const exam = findExam(examId);
+    if (!exam) {
+      return '<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Exam Not Found</title></head><body><p>Exam not found.</p></body></html>';
+    }
     const config = state.settings.printConfig;
     const questions = exam.questionIds.map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
     const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
@@ -1013,6 +1025,7 @@
 
   function downloadExamPaper(examId) {
     const exam = findExam(examId);
+    if (!exam) return showToast('Exam not found.', 'error');
     const blob = new Blob([buildExamPaperHtml(examId)], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -1024,7 +1037,9 @@
   }
 
   function printExamPaper(examId) {
+    if (!findExam(examId)) return showToast('Exam not found.', 'error');
     const win = window.open('', '_blank', 'width=980,height=720');
+    if (!win) return showToast('Popup blocked by browser.', 'error');
     win.document.write(buildExamPaperHtml(examId));
     win.document.close();
     win.focus();
