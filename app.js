@@ -39,7 +39,7 @@
   let cqImageData = '';
   let selectedQuestionExamId = '';
   let editingQuestionId = '';
-  let selectedManageExamId = '';
+
 
   document.addEventListener('DOMContentLoaded', init);
 
