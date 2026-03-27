@@ -501,6 +501,7 @@
 
   function parseJsonImportPayload(raw) {
     const normalizeUnsafeBackslashes = (text) => String(text || '').replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+    const normalizeEscapedLayout = (text) => String(text || '').replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
     const unwrap = (value) => {
       if (value && typeof value === 'object' && typeof value.response === 'string') return value.response.trim();
       if (value && typeof value === 'object' && typeof value.output_text === 'string') return value.output_text.trim();
@@ -517,10 +518,19 @@
           .replace(/[“”]/g, '"')
           .replace(/[‘’]/g, "'")
           .replace(/,\s*([}\]])/g, '$1');
+        const normalizedLayout = normalizeEscapedLayout(cleaned);
         try {
-          return JSON.parse(cleaned);
+          return JSON.parse(normalizedLayout);
         } catch {
-          const normalized = normalizeUnsafeBackslashes(cleaned);
+          if (normalizedLayout.startsWith('"') && normalizedLayout.endsWith('"')) {
+            try {
+              const decoded = JSON.parse(normalizedLayout);
+              if (typeof decoded === 'string') return parseFromString(decoded);
+            } catch {
+              // continue with fallback parsing below
+            }
+          }
+          const normalized = normalizeUnsafeBackslashes(normalizedLayout);
           try {
             return JSON.parse(normalized);
           } catch {
