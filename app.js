@@ -325,9 +325,8 @@
       topic: document.getElementById('qbTopic').value,
       questionType: document.getElementById('promptQuestionType').value,
       difficulty: document.getElementById('promptDifficulty').value,
-      instruction: 'Generate curriculum-aligned exam question using Bangladesh board standard.',
     };
-    document.getElementById('jsonPromptText').value = JSON.stringify(payload, null, 2);
+    document.getElementById('jsonPromptText').value = `You are generating question JSON for direct import.\nReturn ONLY valid JSON (no markdown, no explanation, no code block).\nUse this exact schema:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "question": "Write one ${payload.difficulty} difficulty question",\n      "options": ["Option A", "Option B", "Option C", "Option D"],\n      "answer": "A",\n      "explanation": "Short explanation"\n    }\n  ]\n}\nIf questionType is CQ then return:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "stimulus": "Passage or stem",\n      "subQuestions": [\n        { "label": "A", "prompt": "Question part A", "answer": "Answer A" },\n        { "label": "B", "prompt": "Question part B", "answer": "Answer B" }\n      ]\n    }\n  ]\n}`;
     showToast('Curriculum prompt generated.');
   }
 
@@ -412,6 +411,12 @@
         ? payload
         : Array.isArray(payload.questions)
           ? payload.questions
+          : Array.isArray(payload.data?.questions)
+            ? payload.data.questions
+            : Array.isArray(payload.result?.questions)
+              ? payload.result.questions
+              : Array.isArray(payload.output)
+                ? payload.output
           : payload.question
             ? [payload.question]
             : payload.questions === undefined && typeof payload === 'object'
@@ -443,14 +448,42 @@
   }
 
   function parseJsonImportPayload(raw) {
+    const unwrap = (value) => {
+      if (value && typeof value === 'object' && typeof value.response === 'string') return value.response.trim();
+      if (value && typeof value === 'object' && typeof value.output_text === 'string') return value.output_text.trim();
+      return value;
+    };
+    const parseFromString = (text) => {
+      try {
+        return JSON.parse(text);
+      } catch {
+        const cleaned = text
+          .replace(/^```(?:json)?/i, '')
+          .replace(/```$/i, '')
+          .trim()
+          .replace(/[“”]/g, '"')
+          .replace(/[‘’]/g, "'")
+          .replace(/,\s*([}\]])/g, '$1');
+        try {
+          return JSON.parse(cleaned);
+        } catch {
+          const startObject = cleaned.indexOf('{');
+          const startArray = cleaned.indexOf('[');
+          const start = startArray >= 0 && (startArray < startObject || startObject < 0) ? startArray : startObject;
+          const end = Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']'));
+          if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+          throw new Error('Invalid JSON format.');
+        }
+      }
+    };
+
     try {
-      return JSON.parse(raw);
+      return unwrap(parseFromString(raw));
     } catch {
-      const cleaned = raw
-        .replace(/[“”]/g, '"')
-        .replace(/[‘’]/g, "'")
-        .replace(/,\s*([}\]])/g, '$1');
-      return JSON.parse(cleaned);
+      const parsed = parseFromString(raw);
+      const unwrapped = unwrap(parsed);
+      if (typeof unwrapped === 'string') return parseFromString(unwrapped);
+      return unwrapped;
     }
   }
 
@@ -502,10 +535,13 @@
 
     const options = Array.isArray(question.options)
       ? question.options.map((option) => (typeof option === 'string' ? option : option?.text || '')).map((option) => String(option).trim()).filter(Boolean)
+      : [question.optionA, question.optionB, question.optionC, question.optionD].map((option) => String(option || '').trim()).filter(Boolean);
+    const finalOptions = options.length
+      ? options
       : [];
     const text = String(question.question || question.stem || '').trim();
-    if (!text || !options.length) return null;
-    const correct = normalizeCorrectIndex(question.correct, question.answer, options);
+    if (!text || !finalOptions.length) return null;
+    const correct = normalizeCorrectIndex(question.correct, question.answer, finalOptions);
     return {
       id: uid('question'),
       type: 'mcq',
@@ -515,7 +551,7 @@
       topic: question.topic || defaults.topic,
       section: question.section || question.topic || defaults.topic,
       question: text,
-      options,
+      options: finalOptions,
       correct,
       explanation: String(question.explanation || '').trim(),
       image: question.image || '',
