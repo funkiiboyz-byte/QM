@@ -13,11 +13,20 @@
       darkMode: false,
       printConfig: {
         headerTitle: 'MegaPrep Examination',
+        examCode: 'EXAM-001',
+        classLabel: 'Class 12',
         instructions: 'Answer all questions carefully.',
+        durationLabel: '3 Hours',
+        marksLabel: '100',
         numberPrefix: '',
         columns: '1',
+        setCount: 4,
+        setLabelStyle: 'alphabet',
         showAnswers: false,
         showExplanation: false,
+        shuffleQuestions: true,
+        shuffleOptions: true,
+        includeAnswerSheet: true,
       },
     },
   };
@@ -673,18 +682,40 @@
 
   function bindPrintConfig() {
     const config = state.settings.printConfig;
-    ['printHeaderTitle', 'printInstructions', 'printNumberPrefix', 'printColumns'].forEach((id) => {
+    ['printHeaderTitle', 'printExamCode', 'printClassLabel', 'printInstructions', 'printDurationLabel', 'printMarksLabel', 'printNumberPrefix', 'printColumns', 'printSetCount', 'printSetLabelStyle'].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
       const key = id.replace('print', '');
-      const map = { HeaderTitle: 'headerTitle', Instructions: 'instructions', NumberPrefix: 'numberPrefix', Columns: 'columns' };
+      const map = {
+        HeaderTitle: 'headerTitle',
+        ExamCode: 'examCode',
+        ClassLabel: 'classLabel',
+        Instructions: 'instructions',
+        DurationLabel: 'durationLabel',
+        MarksLabel: 'marksLabel',
+        NumberPrefix: 'numberPrefix',
+        Columns: 'columns',
+        SetCount: 'setCount',
+        SetLabelStyle: 'setLabelStyle',
+      };
       el.value = config[map[key]];
-      el.addEventListener('input', () => { config[map[key]] = el.value; saveState(); renderPrintPreviewMeta(); });
+      el.addEventListener('input', () => {
+        config[map[key]] = map[key] === 'setCount' ? Number(el.value || 1) : el.value;
+        saveState();
+        renderPrintPreviewMeta();
+      });
     });
-    ['printShowAnswers', 'printShowExplanation'].forEach((id) => {
+    ['printShowAnswers', 'printShowExplanation', 'printShuffleQuestions', 'printShuffleOptions', 'printAnswerSheet'].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
-      const key = id === 'printShowAnswers' ? 'showAnswers' : 'showExplanation';
+      const keyMap = {
+        printShowAnswers: 'showAnswers',
+        printShowExplanation: 'showExplanation',
+        printShuffleQuestions: 'shuffleQuestions',
+        printShuffleOptions: 'shuffleOptions',
+        printAnswerSheet: 'includeAnswerSheet',
+      };
+      const key = keyMap[id];
       el.checked = !!config[key];
       el.addEventListener('change', () => { config[key] = el.checked; saveState(); renderPrintPreviewMeta(); });
     });
@@ -695,7 +726,7 @@
     const preview = document.getElementById('printPreviewMeta');
     if (!preview) return;
     const config = state.settings.printConfig;
-    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>${escapeHtml(config.instructions)}</p><p>Numbering: 1, 2, 3... · Columns: ${escapeHtml(config.columns)} · Answers: ${config.showAnswers ? 'Yes' : 'No'} · Explanation: ${config.showExplanation ? 'Yes' : 'No'}</p></div>`;
+    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)}</p></div>`;
   }
 
   function renderExamManager() {
@@ -741,17 +772,63 @@
     const exam = findExam(examId);
     const config = state.settings.printConfig;
     const questions = exam.questionIds.map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
-    const list = questions.map((question, index) => {
-      const number = `${index + 1}`;
-      const title = latexToPlainText(question.question || question.stimulus || '');
-      const body = question.type === 'cq'
-        ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${escapeHtml(latexToPlainText(item.prompt || ''))}${config.showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${escapeHtml(latexToPlainText(item.answer || ''))}</div>` : ''}</div>`).join('')
-        : `<ul class="option-list">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${escapeHtml(latexToPlainText(option))}</span></li>`).join('')}</ul>${config.showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${escapeHtml(latexToPlainText((question.options || [])[question.correct] || ''))}</p>` : ''}`;
-      const explanation = config.showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${escapeHtml(latexToPlainText(question.explanation))}</p>` : '';
-      return `<article class="print-question"><h3>${number}. ${escapeHtml(title)}</h3>${body}${explanation}</article>`;
-    }).join('');
+    const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
+    const setMarkup = [];
+    const answerSheets = [];
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;background:#fff;padding:36px;color:#111}.paper{max-width:960px;margin:0 auto}h1,h2,h3{margin:0}h1{text-align:center;font-size:30px;margin-bottom:6px}h2{text-align:center;font-size:22px;margin-bottom:12px}.paper-meta{text-align:center;font-size:14px;color:#444;margin-bottom:24px}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:10px 12px;border-radius:8px;text-align:center;margin:0 0 18px 0}.question-grid{column-count:${config.columns};column-gap:28px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 18px;margin:0 0 18px;border-bottom:1px solid #ddd}h3{font-size:18px;line-height:1.45;margin-bottom:10px}.option-list{list-style:none;padding-left:0;margin:8px 0}.option-list li{display:flex;gap:8px;margin:5px 0}.option-label{min-width:20px;font-weight:700}.answer-block,.explanation-block{margin-top:8px}</style></head><body><div class="paper"><h1>${escapeHtml(latexToPlainText(config.headerTitle))}</h1><h2>${escapeHtml(latexToPlainText(exam.title))}</h2><p class="paper-meta">${escapeHtml(latexToPlainText(exam.subject))} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${escapeHtml(latexToPlainText(config.instructions))}</p><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></div></body></html>`;
+    for (let setIndex = 0; setIndex < safeSetCount; setIndex += 1) {
+      const { setQuestions, answerKey } = buildQuestionSet(questions, config);
+      const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${String.fromCharCode(65 + setIndex)}`;
+      const list = setQuestions.map((question, index) => {
+        const number = `${index + 1}`;
+        const title = latexToPlainText(question.question || question.stimulus || '');
+        const body = question.type === 'cq'
+          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${escapeHtml(latexToPlainText(item.prompt || ''))}${config.showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${escapeHtml(latexToPlainText(item.answer || ''))}</div>` : ''}</div>`).join('')
+          : `<ul class="option-list">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${escapeHtml(latexToPlainText(option))}</span></li>`).join('')}</ul>${config.showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${escapeHtml(latexToPlainText((question.options || [])[question.correct] || ''))}</p>` : ''}`;
+        const explanation = config.showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${escapeHtml(latexToPlainText(question.explanation))}</p>` : '';
+        return `<article class="print-question"><h3>${number}. ${escapeHtml(title)}</h3>${body}${explanation}</article>`;
+      }).join('');
+
+      setMarkup.push(`<section class="paper set-paper"><div class="board-head"><h1>${escapeHtml(latexToPlainText(config.headerTitle))}</h1><h2>${escapeHtml(latexToPlainText(exam.title))}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${escapeHtml(latexToPlainText(config.examCode || 'N/A'))}</span><span><strong>Class:</strong> ${escapeHtml(latexToPlainText(config.classLabel || 'N/A'))}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${escapeHtml(latexToPlainText(config.durationLabel || exam.duration || 'N/A'))}</span><span><strong>Full Marks:</strong> ${escapeHtml(latexToPlainText(config.marksLabel || exam.fullMarks || 'N/A'))}</span></div><p class="paper-meta">${escapeHtml(latexToPlainText(exam.subject))} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${escapeHtml(latexToPlainText(config.instructions))}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
+
+      if (config.includeAnswerSheet) {
+        answerSheets.push(`<section class="paper answer-sheet"><h2>Answer Sheet - ${escapeHtml(setLabel)}</h2><table><thead><tr><th>#</th><th>Answer</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${escapeHtml(item)}</td></tr>`).join('')}</tbody></table></section>`);
+      }
+    }
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;background:#fff;padding:24px;color:#111}.paper{max-width:980px;margin:0 auto 28px auto;padding:18px 22px;border:1px solid #d6dbe3;border-radius:10px}h1,h2,h3{margin:0}.board-head{text-align:center}h1{font-size:30px;margin-bottom:6px}h2{font-size:22px;margin-bottom:10px}.board-meta{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;font-size:14px;margin-bottom:6px}.board-meta--top{font-size:16px;margin:10px 0}.paper-meta{text-align:center;font-size:14px;color:#444;margin:0 0 12px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:10px 12px;border-radius:8px;text-align:center;margin:0 0 18px 0}.question-grid{column-count:${config.columns};column-gap:28px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 18px;margin:0 0 18px;border-bottom:1px solid #ddd}h3{font-size:18px;line-height:1.45;margin-bottom:10px}.option-list{list-style:none;padding-left:0;margin:8px 0}.option-list li{display:flex;gap:8px;margin:5px 0}.option-label{min-width:20px;font-weight:700}.answer-block,.explanation-block{margin-top:8px}.answer-sheet table{width:100%;border-collapse:collapse;margin-top:10px}.answer-sheet th,.answer-sheet td{border:1px solid #d0d5dd;padding:8px;text-align:center}@media print{.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body>${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+  }
+
+  function buildQuestionSet(sourceQuestions, config) {
+    let setQuestions = sourceQuestions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: question.subQuestions ? question.subQuestions.map((item) => ({ ...item })) : [] }));
+    if (config.shuffleQuestions) setQuestions = shuffleArray(setQuestions);
+    const answerKey = [];
+    setQuestions = setQuestions.map((question) => {
+      if (question.type !== 'mcq') {
+        answerKey.push('CQ');
+        return question;
+      }
+      if (config.shuffleOptions && question.options?.length) {
+        const zipped = question.options.map((option, idx) => ({ option, idx }));
+        const shuffled = shuffleArray(zipped);
+        const newCorrect = shuffled.findIndex((item) => item.idx === question.correct);
+        const next = { ...question, options: shuffled.map((item) => item.option), correct: newCorrect >= 0 ? newCorrect : 0 };
+        answerKey.push(String.fromCharCode(65 + next.correct));
+        return next;
+      }
+      answerKey.push(String.fromCharCode(65 + (question.correct || 0)));
+      return question;
+    });
+    return { setQuestions, answerKey };
+  }
+
+  function shuffleArray(items) {
+    const arr = [...items];
+    for (let i = arr.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
   }
 
   function latexToPlainText(text) {

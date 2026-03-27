@@ -73,15 +73,36 @@
 <form id="printConfigForm" class="app-form app-form--single">
 <label>Header Title<input id="printHeaderTitle" type="text" placeholder="Institution / Exam Title" />
 </label>
+<div class="field-row">
+<label>Exam Code<input id="printExamCode" type="text" placeholder="Exam code" />
+</label>
+<label>Class / Session<input id="printClassLabel" type="text" placeholder="Class / Session" />
+</label>
+</div>
 <label>Instructions<textarea id="printInstructions" rows="4" placeholder="Exam instructions">
 </textarea>
 </label>
 <div class="field-row">
-<label>Question Number Prefix<input id="printNumberPrefix" type="text" placeholder="Q" />
+<label>Duration (Top Row)<input id="printDurationLabel" type="text" placeholder="e.g. 3 Hours" />
+</label>
+<label>Full Marks (Top Row)<input id="printMarksLabel" type="text" placeholder="e.g. 100" />
+</label>
+</div>
+<div class="field-row">
+<label>Question Number Prefix<input id="printNumberPrefix" type="text" placeholder="(optional)" />
 </label>
 <label>Columns<select id="printColumns">
 <option value="1">1 Column</option>
 <option value="2">2 Columns</option>
+</select>
+</label>
+</div>
+<div class="field-row">
+<label>Set Count<input id="printSetCount" type="number" min="1" max="10" />
+</label>
+<label>Set Label Style<select id="printSetLabelStyle">
+<option value="alphabet">Set A, B, C...</option>
+<option value="numeric">Set 1, 2, 3...</option>
 </select>
 </label>
 </div>
@@ -92,6 +113,18 @@
 <label class="checkbox-row checkbox-card">
 <input id="printShowExplanation" type="checkbox" />
 <span>Include explanations in output</span>
+</label>
+<label class="checkbox-row checkbox-card">
+<input id="printShuffleQuestions" type="checkbox" />
+<span>Auto shuffle questions per set</span>
+</label>
+<label class="checkbox-row checkbox-card">
+<input id="printShuffleOptions" type="checkbox" />
+<span>Auto shuffle MCQ options per set</span>
+</label>
+<label class="checkbox-row checkbox-card">
+<input id="printAnswerSheet" type="checkbox" />
+<span>Attach answer sheet for all sets</span>
 </label>
 </form>
 <div id="printPreviewMeta" class="preview-surface preview-surface--small">
