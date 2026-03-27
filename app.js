@@ -39,7 +39,7 @@
   let cqImageData = '';
   let selectedQuestionExamId = '';
   let editingQuestionId = '';
-
+  let selectedManageExamId = '';
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -650,14 +650,14 @@
     const preview = document.getElementById('questionPreview');
     if (!preview) return;
     if (questionMode === 'cq') {
-      const subs = [...document.querySelectorAll('.sub-question-row')].map((row) => `<div class="preview-sub"><strong>${escapeHtml(row.querySelector('.sub-question-row__label').value || 'A')}.</strong> ${escapeHtml(row.querySelector('.sub-question-row__prompt').value || '')}</div>`).join('');
-      preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(document.getElementById('cqStimulus').value || 'Stimulus preview')}</h4>${cqImageData ? `<img class="preview-image" src="${cqImageData}" alt="Stimulus" />` : ''}${subs || '<p>Add sub questions to preview.</p>'}</div>`;
+      const subs = [...document.querySelectorAll('.sub-question-row')].map((row) => `<div class="preview-sub"><strong>${escapeHtml(row.querySelector('.sub-question-row__label').value || 'A')}.</strong> ${escapeHtml(latexToPlainText(row.querySelector('.sub-question-row__prompt').value || ''))}</div>`).join('');
+      preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(latexToPlainText(document.getElementById('cqStimulus').value || 'Stimulus preview'))}</h4>${cqImageData ? `<img class="preview-image" src="${cqImageData}" alt="Stimulus" />` : ''}${subs || '<p>Add sub questions to preview.</p>'}</div>`;
     } else if (questionMode === 'json') {
       const jsonPreview = buildJsonPreviewMarkup(document.getElementById('jsonImportText')?.value || '');
       preview.innerHTML = jsonPreview;
     } else {
-      const options = [...document.querySelectorAll('.option-row')].map((row, index) => row.querySelector('.option-row__text').value.trim() ? `<li>${String.fromCharCode(65 + index)}. ${escapeHtml(row.querySelector('.option-row__text').value)}</li>` : '').join('');
-      preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(document.getElementById('mcqQuestion').value || 'Question preview')}</h4>${mcqImageData ? `<img class="preview-image" src="${mcqImageData}" alt="Question" />` : ''}<ol>${options || '<li>Add options to preview.</li>'}</ol><p>${escapeHtml(document.getElementById('mcqExplanation').value || '')}</p></div>`;
+      const options = [...document.querySelectorAll('.option-row')].map((row, index) => row.querySelector('.option-row__text').value.trim() ? `<li>${String.fromCharCode(65 + index)}. ${escapeHtml(latexToPlainText(row.querySelector('.option-row__text').value))}</li>` : '').join('');
+      preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(latexToPlainText(document.getElementById('mcqQuestion').value || 'Question preview'))}</h4>${mcqImageData ? `<img class="preview-image" src="${mcqImageData}" alt="Question" />` : ''}<ol>${options || '<li>Add options to preview.</li>'}</ol><p>${escapeHtml(latexToPlainText(document.getElementById('mcqExplanation').value || ''))}</p></div>`;
     }
     queueTypeset();
   }
@@ -666,7 +666,7 @@
     const target = document.getElementById('questionList');
     if (!target) return;
     if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
-    target.innerHTML = state.questions.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${escapeHtml(question.question || question.stimulus || 'Question')}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
+    target.innerHTML = state.questions.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${escapeHtml(latexToPlainText(question.question || question.stimulus || 'Question'))}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
     target.querySelectorAll('[data-edit-question]').forEach((button) => button.addEventListener('click', () => startQuestionEdit(button.dataset.editQuestion)));
     target.querySelectorAll('[data-delete-question]').forEach((button) => button.addEventListener('click', () => {
       state.questions = state.questions.filter((item) => item.id !== button.dataset.deleteQuestion);
@@ -762,7 +762,6 @@
           return `<li>${String.fromCharCode(65 + optionIndex)}. ${escapeHtml(latexToPlainText(option))}${isCorrect ? ' <strong>(Correct)</strong>' : ''}</li>`;
         }).join('');
         return `<div class="preview-sub"><strong>Q${index + 1}. ${escapeHtml(latexToPlainText(question.question || ''))}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="MCQ" />` : ''}<ol>${options || '<li>No options found.</li>'}</ol>${question.explanation ? `<p><strong>Explanation:</strong> ${escapeHtml(latexToPlainText(question.explanation))}</p>` : ''}</div>`;
-
       }).join('');
       return `<div class="preview-block"><p>JSON Preview (${normalized.length} question${normalized.length > 1 ? 's' : ''})</p>${blocks}</div>`;
     } catch (error) {
@@ -905,7 +904,13 @@
       });
       return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<label class="assignment-item"><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label>`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div><div class="entity-actions"><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-publish-exam="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-download-exam="${exam.id}">Download</button><button class="toolbar-button" data-print-exam="${exam.id}">Print</button><button class="toolbar-button toolbar-button--danger" data-delete-exam="${exam.id}">Delete</button></div></article>`;
     }).join('');
-    target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => { const exam = findExam(button.dataset.publishExam); exam.published = !exam.published; saveState(); renderExamManager(); }));
+    target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => {
+      const exam = findExam(button.dataset.publishExam);
+      if (!exam) return showToast('Exam not found.', 'error');
+      exam.published = !exam.published;
+      saveState();
+      renderExamManager();
+    }));
     target.querySelectorAll('[data-delete-exam]').forEach((button) => button.addEventListener('click', () => {
       const deletedId = button.dataset.deleteExam;
       state.exams = state.exams.filter((item) => item.id !== deletedId);
