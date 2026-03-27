@@ -39,7 +39,7 @@
   let cqImageData = '';
   let selectedQuestionExamId = '';
   let editingQuestionId = '';
-  let selectedManageExamId = '';
+
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -754,14 +754,7 @@
       if (!normalized.length) return '<div class="preview-block"><p>Could not build preview from provided JSON.</p></div>';
       const blocks = normalized.map((question, index) => {
         if (question.type === 'cq') {
-          const subs = (question.subQuestions || []).map((sub) => `<li><strong>${escapeHtml(sub.label || '')}.</strong> ${escapeHtml(latexToPlainText(sub.prompt || ''))}<br/><span class="muted-copy">Answer: ${escapeHtml(latexToPlainText(sub.answer || ''))}</span></li>`).join('');
-          return `<div class="preview-sub"><strong>Q${index + 1}. ${escapeHtml(latexToPlainText(question.stimulus || ''))}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="CQ" />` : ''}<ul>${subs || '<li>No sub-questions found.</li>'}</ul></div>`;
-        }
-        const options = (question.options || []).map((option, optionIndex) => {
-          const isCorrect = optionIndex === question.correct;
-          return `<li>${String.fromCharCode(65 + optionIndex)}. ${escapeHtml(latexToPlainText(option))}${isCorrect ? ' <strong>(Correct)</strong>' : ''}</li>`;
-        }).join('');
-        return `<div class="preview-sub"><strong>Q${index + 1}. ${escapeHtml(latexToPlainText(question.question || ''))}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="MCQ" />` : ''}<ol>${options || '<li>No options found.</li>'}</ol>${question.explanation ? `<p><strong>Explanation:</strong> ${escapeHtml(latexToPlainText(question.explanation))}</p>` : ''}</div>`;
+
       }).join('');
       return `<div class="preview-block"><p>JSON Preview (${normalized.length} question${normalized.length > 1 ? 's' : ''})</p>${blocks}</div>`;
     } catch (error) {
