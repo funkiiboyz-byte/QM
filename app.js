@@ -40,6 +40,7 @@
   let selectedQuestionExamId = '';
   let editingQuestionId = '';
 
+
   document.addEventListener('DOMContentLoaded', init);
 
   function init() {
@@ -499,6 +500,7 @@
   }
 
   function parseJsonImportPayload(raw) {
+    const normalizeUnsafeBackslashes = (text) => String(text || '').replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
     const unwrap = (value) => {
       if (value && typeof value === 'object' && typeof value.response === 'string') return value.response.trim();
       if (value && typeof value === 'object' && typeof value.output_text === 'string') return value.output_text.trim();
@@ -518,12 +520,17 @@
         try {
           return JSON.parse(cleaned);
         } catch {
-          const startObject = cleaned.indexOf('{');
-          const startArray = cleaned.indexOf('[');
-          const start = startArray >= 0 && (startArray < startObject || startObject < 0) ? startArray : startObject;
-          const end = Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']'));
-          if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-          throw new Error('Invalid JSON format.');
+          const normalized = normalizeUnsafeBackslashes(cleaned);
+          try {
+            return JSON.parse(normalized);
+          } catch {
+            const startObject = normalized.indexOf('{');
+            const startArray = normalized.indexOf('[');
+            const start = startArray >= 0 && (startArray < startObject || startObject < 0) ? startArray : startObject;
+            const end = Math.max(normalized.lastIndexOf('}'), normalized.lastIndexOf(']'));
+            if (start >= 0 && end > start) return JSON.parse(normalized.slice(start, end + 1));
+            throw new Error('Invalid JSON format.');
+          }
         }
       }
     };
@@ -763,6 +770,7 @@
   }
 
   function initHandleExamsPage() {
+    selectedManageExamId = new URLSearchParams(window.location.search).get('examId') || '';
     bindCurriculumFilterSelectors({ level: 'examFilterLevel', group: 'examFilterGroup', subject: 'examFilterSubject', topic: 'examFilterTopic' });
     bindExamFilters();
     bindPrintConfig();
@@ -867,10 +875,25 @@
 
   function renderExamManager() {
     const target = document.getElementById('examManagerList');
+    const filterForm = document.getElementById('questionFilterForm');
     if (!target) return;
     if (!state.exams.length) return target.innerHTML = emptyState('No exams available.');
+    const scopedExams = selectedManageExamId ? state.exams.filter((exam) => exam.id === selectedManageExamId) : state.exams;
+    if (!scopedExams.length) {
+      if (filterForm) filterForm.style.display = '';
+      target.innerHTML = `<div class="preview-block"><p>Selected exam was not found.</p><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div>`;
+      return;
+    }
+
+    if (!selectedManageExamId) {
+      if (filterForm) filterForm.style.display = 'none';
+      target.innerHTML = scopedExams.map((exam) => `<article class="entity-card"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><a class="toolbar-button" href="handle-exams.html?examId=${exam.id}">Manage</a></article>`).join('');
+      return;
+    }
+
+    if (filterForm) filterForm.style.display = '';
     const filters = getQuestionFilters();
-    target.innerHTML = state.exams.map((exam) => {
+    target.innerHTML = scopedExams.map((exam) => {
       const filteredQuestions = state.questions.filter((question) => {
         if (exam.subject && question.subject && question.subject !== exam.subject) return false;
         if (filters.level && question.level !== filters.level) return false;
@@ -879,10 +902,18 @@
         if (filters.topic && question.topic !== filters.topic) return false;
         return true;
       });
-      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<label class="assignment-item"><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label>`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div><div class="entity-actions"><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-publish-exam="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-download-exam="${exam.id}">Download</button><button class="toolbar-button" data-print-exam="${exam.id}">Print</button><button class="toolbar-button toolbar-button--danger" data-delete-exam="${exam.id}">Delete</button></div></article>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<label class="assignment-item"><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label>`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div><div class="entity-actions"><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-publish-exam="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-download-exam="${exam.id}">Download</button><button class="toolbar-button" data-print-exam="${exam.id}">Print</button><button class="toolbar-button toolbar-button--danger" data-delete-exam="${exam.id}">Delete</button></div></article>`;
     }).join('');
     target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => { const exam = findExam(button.dataset.publishExam); exam.published = !exam.published; saveState(); renderExamManager(); }));
-    target.querySelectorAll('[data-delete-exam]').forEach((button) => button.addEventListener('click', () => { state.exams = state.exams.filter((item) => item.id !== button.dataset.deleteExam); state.attempts = state.attempts.filter((attempt) => attempt.examId !== button.dataset.deleteExam); saveState(); renderExamManager(); showToast('Exam deleted.'); }));
+    target.querySelectorAll('[data-delete-exam]').forEach((button) => button.addEventListener('click', () => {
+      const deletedId = button.dataset.deleteExam;
+      state.exams = state.exams.filter((item) => item.id !== deletedId);
+      state.attempts = state.attempts.filter((attempt) => attempt.examId !== deletedId);
+      saveState();
+      if (selectedManageExamId === deletedId) window.location.href = 'handle-exams.html';
+      else renderExamManager();
+      showToast('Exam deleted.');
+    }));
     target.querySelectorAll('[data-download-exam]').forEach((button) => button.addEventListener('click', () => downloadExamPaper(button.dataset.downloadExam)));
     target.querySelectorAll('[data-print-exam]').forEach((button) => button.addEventListener('click', () => printExamPaper(button.dataset.printExam)));
     target.querySelectorAll('input[data-exam-id]').forEach((checkbox) => checkbox.addEventListener('change', () => {
