@@ -983,7 +983,7 @@
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;background:#fff;padding:24px;color:#111}.paper{max-width:980px;margin:0 auto 28px auto;padding:18px 22px;border:1px solid #d6dbe3;border-radius:10px}h1,h2,h3{margin:0}.board-head{text-align:center}h1{font-size:30px;margin-bottom:6px}h2{font-size:22px;margin-bottom:10px}.board-meta{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;font-size:14px;margin-bottom:6px}.board-meta--top{font-size:16px;margin:10px 0}.paper-meta{text-align:center;font-size:14px;color:#444;margin:0 0 12px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:10px 12px;border-radius:8px;text-align:center;margin:0 0 18px 0}.question-grid{column-count:${config.columns};column-gap:28px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 18px;margin:0 0 18px;border-bottom:1px solid #ddd}h3{font-size:18px;line-height:1.45;margin-bottom:10px}.option-list{list-style:none;padding-left:0;margin:8px 0}.option-list li{display:flex;gap:8px;margin:5px 0}.option-label{min-width:20px;font-weight:700}.answer-block,.explanation-block{margin-top:8px}.answer-sheet table{width:100%;border-collapse:collapse;margin-top:10px}.answer-sheet th,.answer-sheet td{border:1px solid #d0d5dd;padding:8px;text-align:center}@media print{.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\\\(','\\\\)']],displayMath:[['$$','$$'],['\\\\[','\\\\]']]},svg:{fontCache:'global'}};</script><script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script></head><body>${setMarkup.join('')}${answerSheets.join('')}<script>window.addEventListener('load',function(){if(window.MathJax&&window.MathJax.typesetPromise){window.MathJax.typesetPromise();}});</script></body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;background:#fff;padding:24px;color:#111}.paper{max-width:980px;margin:0 auto 28px auto;padding:18px 22px;border:1px solid #d6dbe3;border-radius:10px}h1,h2,h3{margin:0}.board-head{text-align:center}h1{font-size:30px;margin-bottom:6px}h2{font-size:22px;margin-bottom:10px}.board-meta{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;font-size:14px;margin-bottom:6px}.board-meta--top{font-size:16px;margin:10px 0}.paper-meta{text-align:center;font-size:14px;color:#444;margin:0 0 12px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:10px 12px;border-radius:8px;text-align:center;margin:0 0 18px 0}.question-grid{column-count:${config.columns};column-gap:28px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 18px;margin:0 0 18px;border-bottom:1px solid #ddd}h3{font-size:18px;line-height:1.45;margin-bottom:10px}.option-list{list-style:none;padding-left:0;margin:8px 0}.option-list li{display:flex;gap:8px;margin:5px 0}.option-label{min-width:20px;font-weight:700}.answer-block,.explanation-block{margin-top:8px}.answer-sheet table{width:100%;border-collapse:collapse;margin-top:10px}.answer-sheet th,.answer-sheet td{border:1px solid #d0d5dd;padding:8px;text-align:center}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}@media print{.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body>${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
   }
 
   function buildQuestionSet(sourceQuestions, config) {
@@ -1223,13 +1223,19 @@ console.log(latexToText(sampleLatex));
   function readFileAsDataUrl(file) { if (!file) return Promise.resolve(''); return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); }
   function queueTypeset() { if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise(); }
   function formatMathForDisplay(text) {
-    const normalized = escapeHtml(latexToPlainText(text));
+    const normalized = escapeHtml(latexToPlainText(text))
+      .replace(/\|/g, '')
+      .replace(/\*/g, ' × ')
+      .replace(/\s*=\s*/g, ' = ')
+      .replace(/\s+/g, ' ')
+      .trim();
     return normalized
-      .replace(/sqrt\(([^)]+)\)/g, '√($1)')
+      .replace(/sqrt\(([^)]+)\)/g, '√$1')
       .replace(/([A-Za-z0-9)\]])\s*\^\s*\(([^)]+)\)/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*\(([^)]+)\)/g, '$1<sub>$2</sub>')
       .replace(/([A-Za-z0-9)\]])\s*\^\s*([A-Za-z0-9+\-./]+)/g, '$1<sup>$2</sup>')
-      .replace(/([A-Za-z0-9)\]])\s*_\s*([A-Za-z0-9+\-./]+)/g, '$1<sub>$2</sub>');
+      .replace(/([A-Za-z0-9)\]])\s*_\s*([A-Za-z0-9+\-./]+)/g, '$1<sub>$2</sub>')
+      .replace(/(?<![\w>])([A-Za-z0-9.+\-]+)\s*\/\s*([A-Za-z0-9.+\-]+)(?![\w<])/g, '<span class="math-frac"><span class="math-frac__num">$1</span><span class="math-frac__den">$2</span></span>');
   }
   function emptyState(message) { return `<div class="empty-state"><p>${escapeHtml(message)}</p></div>`; }
   function escapeHtml(value = '') { return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
