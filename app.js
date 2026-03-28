@@ -1225,10 +1225,11 @@ console.log(latexToText(sampleLatex));
   function formatMathForDisplay(text) {
     const normalized = escapeHtml(latexToPlainText(text));
     return normalized
-      .replace(/([A-Za-z0-9)\]])\^\(([^)]+)\)/g, '$1<sup>$2</sup>')
-      .replace(/([A-Za-z0-9)\]])_\(([^)]+)\)/g, '$1<sub>$2</sub>')
-      .replace(/([A-Za-z0-9)\]])\^([A-Za-z0-9+\-]+)/g, '$1<sup>$2</sup>')
-      .replace(/([A-Za-z0-9)\]])_([A-Za-z0-9+\-]+)/g, '$1<sub>$2</sub>');
+      .replace(/sqrt\(([^)]+)\)/g, '√($1)')
+      .replace(/([A-Za-z0-9)\]])\s*\^\s*\(([^)]+)\)/g, '$1<sup>$2</sup>')
+      .replace(/([A-Za-z0-9)\]])\s*_\s*\(([^)]+)\)/g, '$1<sub>$2</sub>')
+      .replace(/([A-Za-z0-9)\]])\s*\^\s*([A-Za-z0-9+\-./]+)/g, '$1<sup>$2</sup>')
+      .replace(/([A-Za-z0-9)\]])\s*_\s*([A-Za-z0-9+\-./]+)/g, '$1<sub>$2</sub>');
   }
   function emptyState(message) { return `<div class="empty-state"><p>${escapeHtml(message)}</p></div>`; }
   function escapeHtml(value = '') { return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
