@@ -676,7 +676,7 @@
     const target = document.getElementById('questionList');
     if (!target) return;
     if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
-    target.innerHTML = state.questions.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${escapeHtml(question.question || question.stimulus || 'Question')}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
+    target.innerHTML = state.questions.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${escapeHtml(latexToPlainText(question.question || question.stimulus || 'Question'))}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
     target.querySelectorAll('[data-edit-question]').forEach((button) => button.addEventListener('click', () => startQuestionEdit(button.dataset.editQuestion)));
     target.querySelectorAll('[data-delete-question]').forEach((button) => button.addEventListener('click', () => {
       state.questions = state.questions.filter((item) => item.id !== button.dataset.deleteQuestion);
@@ -764,14 +764,14 @@
       if (!normalized.length) return '<div class="preview-block"><p>Could not build preview from provided JSON.</p></div>';
       const blocks = normalized.map((question, index) => {
         if (question.type === 'cq') {
-          const subs = (question.subQuestions || []).map((sub) => `<li><strong>${escapeHtml(sub.label || '')}.</strong> ${escapeHtml(sub.prompt || '')}<br/><span class="muted-copy">Answer: ${escapeHtml(sub.answer || '')}</span></li>`).join('');
-          return `<div class="preview-sub"><strong>Q${index + 1}. ${escapeHtml(question.stimulus || '')}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="CQ" />` : ''}<ul>${subs || '<li>No sub-questions found.</li>'}</ul></div>`;
+          const subs = (question.subQuestions || []).map((sub) => `<li><strong>${escapeHtml(sub.label || '')}.</strong> ${escapeHtml(latexToPlainText(sub.prompt || ''))}<br/><span class="muted-copy">Answer: ${escapeHtml(latexToPlainText(sub.answer || ''))}</span></li>`).join('');
+          return `<div class="preview-sub"><strong>Q${index + 1}. ${escapeHtml(latexToPlainText(question.stimulus || ''))}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="CQ" />` : ''}<ul>${subs || '<li>No sub-questions found.</li>'}</ul></div>`;
         }
         const options = (question.options || []).map((option, optionIndex) => {
           const isCorrect = optionIndex === question.correct;
-          return `<li>${String.fromCharCode(65 + optionIndex)}. ${escapeHtml(option)}${isCorrect ? ' <strong>(Correct)</strong>' : ''}</li>`;
+          return `<li>${String.fromCharCode(65 + optionIndex)}. ${escapeHtml(latexToPlainText(option))}${isCorrect ? ' <strong>(Correct)</strong>' : ''}</li>`;
         }).join('');
-        return `<div class="preview-sub"><strong>Q${index + 1}. ${escapeHtml(question.question || '')}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="MCQ" />` : ''}<ol>${options || '<li>No options found.</li>'}</ol>${question.explanation ? `<p><strong>Explanation:</strong> ${escapeHtml(question.explanation)}</p>` : ''}</div>`;
+        return `<div class="preview-sub"><strong>Q${index + 1}. ${escapeHtml(latexToPlainText(question.question || ''))}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="MCQ" />` : ''}<ol>${options || '<li>No options found.</li>'}</ol>${question.explanation ? `<p><strong>Explanation:</strong> ${escapeHtml(latexToPlainText(question.explanation))}</p>` : ''}</div>`;
       }).join('');
       return `<div class="preview-block"><p>JSON Preview (${normalized.length} question${normalized.length > 1 ? 's' : ''})</p>${blocks}</div>`;
     } catch (error) {
