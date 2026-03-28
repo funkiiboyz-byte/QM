@@ -660,14 +660,14 @@
     const preview = document.getElementById('questionPreview');
     if (!preview) return;
     if (questionMode === 'cq') {
-      const subs = [...document.querySelectorAll('.sub-question-row')].map((row) => `<div class="preview-sub"><strong>${escapeHtml(row.querySelector('.sub-question-row__label').value || 'A')}.</strong> ${escapeHtml(row.querySelector('.sub-question-row__prompt').value || '')}</div>`).join('');
-      preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(document.getElementById('cqStimulus').value || 'Stimulus preview')}</h4>${cqImageData ? `<img class="preview-image" src="${cqImageData}" alt="Stimulus" />` : ''}${subs || '<p>Add sub questions to preview.</p>'}</div>`;
+      const subs = [...document.querySelectorAll('.sub-question-row')].map((row) => `<div class="preview-sub"><strong>${escapeHtml(row.querySelector('.sub-question-row__label').value || 'A')}.</strong> ${escapeHtml(latexToPlainText(row.querySelector('.sub-question-row__prompt').value || ''))}</div>`).join('');
+      preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(latexToPlainText(document.getElementById('cqStimulus').value || 'Stimulus preview'))}</h4>${cqImageData ? `<img class="preview-image" src="${cqImageData}" alt="Stimulus" />` : ''}${subs || '<p>Add sub questions to preview.</p>'}</div>`;
     } else if (questionMode === 'json') {
       const jsonPreview = buildJsonPreviewMarkup(document.getElementById('jsonImportText')?.value || '');
       preview.innerHTML = jsonPreview;
     } else {
-      const options = [...document.querySelectorAll('.option-row')].map((row, index) => row.querySelector('.option-row__text').value.trim() ? `<li>${String.fromCharCode(65 + index)}. ${escapeHtml(row.querySelector('.option-row__text').value)}</li>` : '').join('');
-      preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(document.getElementById('mcqQuestion').value || 'Question preview')}</h4>${mcqImageData ? `<img class="preview-image" src="${mcqImageData}" alt="Question" />` : ''}<ol>${options || '<li>Add options to preview.</li>'}</ol><p>${escapeHtml(document.getElementById('mcqExplanation').value || '')}</p></div>`;
+      const options = [...document.querySelectorAll('.option-row')].map((row, index) => row.querySelector('.option-row__text').value.trim() ? `<li>${String.fromCharCode(65 + index)}. ${escapeHtml(latexToPlainText(row.querySelector('.option-row__text').value))}</li>` : '').join('');
+      preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(latexToPlainText(document.getElementById('mcqQuestion').value || 'Question preview'))}</h4>${mcqImageData ? `<img class="preview-image" src="${mcqImageData}" alt="Question" />` : ''}<ol>${options || '<li>Add options to preview.</li>'}</ol><p>${escapeHtml(latexToPlainText(document.getElementById('mcqExplanation').value || ''))}</p></div>`;
     }
     queueTypeset();
   }
