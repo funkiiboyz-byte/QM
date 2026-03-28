@@ -968,22 +968,22 @@
       const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${String.fromCharCode(65 + setIndex)}`;
       const list = setQuestions.map((question, index) => {
         const number = `${index + 1}`;
-        const title = latexToPlainText(question.question || question.stimulus || '');
+        const title = question.question || question.stimulus || '';
         const body = question.type === 'cq'
-          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${escapeHtml(latexToPlainText(item.prompt || ''))}${config.showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${escapeHtml(latexToPlainText(item.answer || ''))}</div>` : ''}</div>`).join('')
-          : `<ul class="option-list">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${escapeHtml(latexToPlainText(option))}</span></li>`).join('')}</ul>${config.showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${escapeHtml(latexToPlainText((question.options || [])[question.correct] || ''))}</p>` : ''}`;
-        const explanation = config.showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${escapeHtml(latexToPlainText(question.explanation))}</p>` : '';
+          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${escapeHtml(item.prompt || '')}${config.showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${escapeHtml(item.answer || '')}</div>` : ''}</div>`).join('')
+          : `<ul class="option-list">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${escapeHtml(option)}</span></li>`).join('')}</ul>${config.showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${escapeHtml((question.options || [])[question.correct] || '')}</p>` : ''}`;
+        const explanation = config.showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${escapeHtml(question.explanation)}</p>` : '';
         return `<article class="print-question"><h3>${number}. ${escapeHtml(title)}</h3>${body}${explanation}</article>`;
       }).join('');
 
-      setMarkup.push(`<section class="paper set-paper"><div class="board-head"><h1>${escapeHtml(latexToPlainText(config.headerTitle))}</h1><h2>${escapeHtml(latexToPlainText(exam.title))}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${escapeHtml(latexToPlainText(config.examCode || 'N/A'))}</span><span><strong>Class:</strong> ${escapeHtml(latexToPlainText(config.classLabel || 'N/A'))}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${escapeHtml(latexToPlainText(config.durationLabel || exam.duration || 'N/A'))}</span><span><strong>Full Marks:</strong> ${escapeHtml(latexToPlainText(config.marksLabel || exam.fullMarks || 'N/A'))}</span></div><p class="paper-meta">${escapeHtml(latexToPlainText(exam.subject))} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${escapeHtml(latexToPlainText(config.instructions))}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
+      setMarkup.push(`<section class="paper set-paper"><div class="board-head"><h1>${escapeHtml(config.headerTitle)}</h1><h2>${escapeHtml(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${escapeHtml(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${escapeHtml(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${escapeHtml(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${escapeHtml(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${escapeHtml(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${escapeHtml(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
 
       if (config.includeAnswerSheet) {
         answerSheets.push(`<section class="paper answer-sheet"><h2>Answer Sheet - ${escapeHtml(setLabel)}</h2><table><thead><tr><th>#</th><th>Answer</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${escapeHtml(item)}</td></tr>`).join('')}</tbody></table></section>`);
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;background:#fff;padding:24px;color:#111}.paper{max-width:980px;margin:0 auto 28px auto;padding:18px 22px;border:1px solid #d6dbe3;border-radius:10px}h1,h2,h3{margin:0}.board-head{text-align:center}h1{font-size:30px;margin-bottom:6px}h2{font-size:22px;margin-bottom:10px}.board-meta{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;font-size:14px;margin-bottom:6px}.board-meta--top{font-size:16px;margin:10px 0}.paper-meta{text-align:center;font-size:14px;color:#444;margin:0 0 12px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:10px 12px;border-radius:8px;text-align:center;margin:0 0 18px 0}.question-grid{column-count:${config.columns};column-gap:28px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 18px;margin:0 0 18px;border-bottom:1px solid #ddd}h3{font-size:18px;line-height:1.45;margin-bottom:10px}.option-list{list-style:none;padding-left:0;margin:8px 0}.option-list li{display:flex;gap:8px;margin:5px 0}.option-label{min-width:20px;font-weight:700}.answer-block,.explanation-block{margin-top:8px}.answer-sheet table{width:100%;border-collapse:collapse;margin-top:10px}.answer-sheet th,.answer-sheet td{border:1px solid #d0d5dd;padding:8px;text-align:center}@media print{.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body>${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;background:#fff;padding:24px;color:#111}.paper{max-width:980px;margin:0 auto 28px auto;padding:18px 22px;border:1px solid #d6dbe3;border-radius:10px}h1,h2,h3{margin:0}.board-head{text-align:center}h1{font-size:30px;margin-bottom:6px}h2{font-size:22px;margin-bottom:10px}.board-meta{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;font-size:14px;margin-bottom:6px}.board-meta--top{font-size:16px;margin:10px 0}.paper-meta{text-align:center;font-size:14px;color:#444;margin:0 0 12px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:10px 12px;border-radius:8px;text-align:center;margin:0 0 18px 0}.question-grid{column-count:${config.columns};column-gap:28px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 18px;margin:0 0 18px;border-bottom:1px solid #ddd}h3{font-size:18px;line-height:1.45;margin-bottom:10px}.option-list{list-style:none;padding-left:0;margin:8px 0}.option-list li{display:flex;gap:8px;margin:5px 0}.option-label{min-width:20px;font-weight:700}.answer-block,.explanation-block{margin-top:8px}.answer-sheet table{width:100%;border-collapse:collapse;margin-top:10px}.answer-sheet th,.answer-sheet td{border:1px solid #d0d5dd;padding:8px;text-align:center}@media print{.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\\\(','\\\\)']],displayMath:[['$$','$$'],['\\\\[','\\\\]']]},svg:{fontCache:'global'}};</script><script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script></head><body>${setMarkup.join('')}${answerSheets.join('')}<script>window.addEventListener('load',function(){if(window.MathJax&&window.MathJax.typesetPromise){window.MathJax.typesetPromise();}});</script></body></html>`;
   }
 
   function buildQuestionSet(sourceQuestions, config) {
@@ -1154,6 +1154,67 @@
       if (!next || next !== confirm) return showToast('Password confirmation failed.', 'error');
       state.credentials.adminPassword = next; saveState(); event.target.reset(); showToast('Password updated.');
     });
+    /**
+ * A utility to strip LaTeX commands and convert to plain text.
+ * Note: This handles common formatting and math symbols.
+ */
+const latexToText = (latex) => {
+  let text = latex;
+
+  // 1. Handle escaped characters (e.g., \{ -> {, \& -> &)
+  text = text.replace(/\\([&%$#_{}])/g, '$1');
+
+  // 2. Remove comments
+  text = text.replace(/%.*$/gm, '');
+
+  // 3. Remove common environments (begin/end blocks)
+  text = text.replace(/\\begin\{.*?\}/g, '');
+  text = text.replace(/\\end\{.*?\}/g, '');
+
+  // 4. Convert specific math symbols/commands to readable equivalents
+  const replacements = [
+    { regex: /\\alpha/g, subst: 'α' },
+    { regex: /\\beta/g, subst: 'β' },
+    { regex: /\\gamma/g, subst: 'γ' },
+    { regex: /\\infty/g, subst: '∞' },
+    { regex: /\\pm/g, subst: '±' },
+    { regex: /\\neq/g, subst: '≠' },
+    { regex: /\\approx/g, subst: '≈' },
+    { regex: /\\times/g, subst: '×' },
+    { regex: /\\div/g, subst: '÷' },
+    { regex: /\\rightarrow/g, subst: '→' }
+  ];
+
+  replacements.forEach(item => {
+    text = text.replace(item.regex, item.subst);
+  });
+
+  // 5. Remove formatting commands but keep the content: \textbf{Hello} -> Hello
+  // This uses a non-greedy match for the content inside braces
+  text = text.replace(/\\[a-zA-Z]+\{(.*?)\}/g, '$1');
+
+  // 6. Handle subscripts (_) and superscripts (^)
+  text = text.replace(/\^\{(.*?)\}/g, '^($1)');
+  text = text.replace(/_\{(.*?)\}/g, '_($1)');
+
+  // 7. Strip remaining backslashes and lone commands
+  text = text.replace(/\\[a-zA-Z]+/g, '');
+
+  // 8. Clean up whitespace
+  return text.trim().replace(/\s\s+/g, ' ');
+};
+
+// --- Example Usage ---
+const sampleLatex = `
+\\section{Introduction}
+The formula for the area of a circle is $A = \\pi r^2$. 
+\\textbf{Note:} If the radius is \\infty, the area is also \\infty.
+`;
+
+console.log("--- Original LaTeX ---");
+console.log(sampleLatex);
+console.log("\n--- Plain Text Output ---");
+console.log(latexToText(sampleLatex));
   }
 
   function parseCommaList(value) { return value.split(',').map((item) => item.trim()).filter(Boolean); }
