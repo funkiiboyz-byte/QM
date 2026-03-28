@@ -19,7 +19,6 @@
         durationLabel: '3 Hours',
         marksLabel: '100',
         headerTheme: 'classic',
-        accentColor: '#1d4ed8',
         numberPrefix: '',
         columns: '1',
         setCount: 4,
@@ -839,7 +838,7 @@
 
   function bindPrintConfig() {
     const config = state.settings.printConfig;
-    ['printHeaderTitle', 'printExamCode', 'printClassLabel', 'printInstructions', 'printDurationLabel', 'printMarksLabel', 'printHeaderTheme', 'printAccentColor', 'printNumberPrefix', 'printColumns', 'printSetCount', 'printSetLabelStyle'].forEach((id) => {
+    ['printHeaderTitle', 'printExamCode', 'printClassLabel', 'printInstructions', 'printDurationLabel', 'printMarksLabel', 'printHeaderTheme', 'printNumberPrefix', 'printColumns', 'printSetCount', 'printSetLabelStyle'].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
       const key = id.replace('print', '');
@@ -851,7 +850,6 @@
         DurationLabel: 'durationLabel',
         MarksLabel: 'marksLabel',
         HeaderTheme: 'headerTheme',
-        AccentColor: 'accentColor',
         NumberPrefix: 'numberPrefix',
         Columns: 'columns',
         SetCount: 'setCount',
@@ -886,7 +884,7 @@
     const preview = document.getElementById('printPreviewMeta');
     if (!preview) return;
     const config = state.settings.printConfig;
-    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Theme: ${escapeHtml(config.headerTheme || 'classic')} · Accent: <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${escapeAttr(config.accentColor || '#1d4ed8')};vertical-align:middle;"></span></p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)} · Compact: ${config.compactMode ? 'On' : 'Off'}</p></div>`;
+    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Theme: ${escapeHtml(config.headerTheme || 'classic')}</p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)} · Compact: ${config.compactMode ? 'On' : 'Off'}</p></div>`;
   }
 
   function renderExamManager() {
@@ -985,7 +983,6 @@
     const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
     const setMarkup = [];
     const answerSheets = [];
-    const accentColor = String(config.accentColor || '#1d4ed8');
     const headerTheme = String(config.headerTheme || 'classic');
     const compactClass = config.compactMode ? 'compact-mode' : '';
 
@@ -1009,7 +1006,7 @@
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;background:#fff;padding:24px;color:#111}.paper{max-width:980px;margin:0 auto 20px auto;padding:14px 18px;border:1px solid #d6dbe3;border-radius:10px}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid ${accentColor};border-radius:10px;padding:12px 10px;margin-bottom:12px}.board-head--modern{background:linear-gradient(140deg,${accentColor}22,transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:8px 0}.board-head--classic{background:#f8fbff}h1{font-size:28px;margin-bottom:4px}h2{font-size:20px;margin-bottom:8px}.board-meta{display:flex;justify-content:center;gap:14px;flex-wrap:wrap;font-size:13px;margin-bottom:5px}.board-meta--top{font-size:15px;margin:8px 0}.paper-meta{text-align:center;font-size:13px;color:#444;margin:0 0 10px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:8px 10px;border-radius:8px;text-align:center;margin:0 0 12px 0}.question-grid{column-count:${config.columns};column-gap:20px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #ddd}h3{font-size:16px;line-height:1.35;margin-bottom:6px}.option-list{list-style:none;padding-left:0;margin:6px 0}.option-list li{display:flex;gap:6px;margin:3px 0}.option-label{min-width:18px;font-weight:700}.answer-block,.explanation-block{margin-top:6px}.answer-sheet table{width:100%;border-collapse:collapse;margin-top:10px}.answer-sheet th,.answer-sheet td{border:1px solid #d0d5dd;padding:8px;text-align:center}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:12px 14px}.compact-mode h1{font-size:24px}.compact-mode h2{font-size:18px}.compact-mode .question-grid{column-gap:16px}.compact-mode .print-question{margin:0 0 7px;padding:0 0 7px}.compact-mode h3{font-size:14px;margin-bottom:4px}.compact-mode .option-list li{margin:2px 0;font-size:13px}.compact-mode .board-meta{font-size:12px}.compact-mode .instructions{font-size:12px;padding:6px 8px}@media print{.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #1d4ed8;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(29,78,216,.14),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{display:grid;grid-template-columns:repeat(${Math.max(1, Number(config.columns || 1))},minmax(0,1fr));gap:8px 14px;align-items:start}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 6px;border-bottom:1px solid #ddd}h3{font-size:14px;line-height:1.28;margin-bottom:4px}.option-list{list-style:none;padding-left:0;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.answer-sheet table{width:100%;border-collapse:collapse;margin-top:8px}.answer-sheet th,.answer-sheet td{border:1px solid #d0d5dd;padding:6px;text-align:center;font-size:12px}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{gap:6px 10px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
   }
 
   function mergePrintConfig(config = {}) {
