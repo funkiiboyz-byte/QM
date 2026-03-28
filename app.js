@@ -1255,6 +1255,7 @@ console.log(latexToText(sampleLatex));
       .replace(/\*/g, ' × ')
       .replace(/\s*=\s*/g, ' = ')
       .replace(/\s+/g, ' ')
+      .replace(/\b([a-zA-Z])(\d+)\b/g, '$1^$2')
       .trim();
     return normalized
       .replace(/sqrt\(([^)]+)\)/g, '√$1')
