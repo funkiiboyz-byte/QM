@@ -1225,6 +1225,8 @@ console.log(latexToText(sampleLatex));
   function formatMathForDisplay(text) {
     const normalized = escapeHtml(latexToPlainText(text));
     return normalized
+      .replace(/([A-Za-z0-9)\]])\^\(([^)]+)\)/g, '$1<sup>$2</sup>')
+      .replace(/([A-Za-z0-9)\]])_\(([^)]+)\)/g, '$1<sub>$2</sub>')
       .replace(/([A-Za-z0-9)\]])\^([A-Za-z0-9+\-]+)/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])_([A-Za-z0-9+\-]+)/g, '$1<sub>$2</sub>');
   }
