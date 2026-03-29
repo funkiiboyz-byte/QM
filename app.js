@@ -1113,45 +1113,54 @@
     const panel = document.getElementById('resultAnalyzerPanel');
     if (!panel) return;
     panel.hidden = false;
-    panel.innerHTML = `<h4>Result Analyse · ${escapeHtml(exam.title)}</h4><p class="muted-copy">Batch CSV format: <code>roll,name,set,answers</code> যেখানে <code>answers</code> হবে ABCD sequence (e.g. <code>ABCDABCD</code>).</p><label class="toolbar-button toolbar-button--file">Upload OMR Batch CSV<input id="resultBatchFile" type="file" accept=".csv,text/csv" hidden /></label><label>বা CSV paste করুন<textarea id="resultBatchText" rows="6" placeholder="roll,name,set,answers&#10;101,Rafi,A,ABCDABCD..."></textarea></label><div class="entity-actions"><button id="processResultBatchBtn" type="button" class="submit-button">Process Batch Result</button></div><div id="resultBatchOutput"></div>`;
-    panel.querySelector('#resultBatchFile')?.addEventListener('change', async (event) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
-      panel.querySelector('#resultBatchText').value = await file.text();
-    });
-    panel.querySelector('#processResultBatchBtn')?.addEventListener('click', () => processResultBatch(exam.id));
+    panel.innerHTML = `<h4>Result Analyse · ${escapeHtml(exam.title)}</h4><p class="muted-copy">Student list XLSX columns: <code>roll_number, student_name, class, phone_number</code>. তারপর একসাথে OMR image upload করে batch result process করুন।</p><label class="toolbar-button toolbar-button--file">Upload Student List XLSX<input id="studentListXlsxFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden /></label><label class="toolbar-button toolbar-button--file">Upload Filled OMR Images<input id="omrImageBatchFile" type="file" accept="image/*" multiple hidden /></label><div class="entity-actions"><button id="processOmrImageBatchBtn" type="button" class="submit-button">Process OMR Images</button><button id="exportResultXlsxBtn" type="button" class="toolbar-button">Export Result XLSX</button></div><div id="resultBatchOutput"></div>`;
+    panel.querySelector('#processOmrImageBatchBtn')?.addEventListener('click', () => processOmrImageBatch(exam.id));
+    panel.querySelector('#exportResultXlsxBtn')?.addEventListener('click', exportLatestResultWorkbook);
   }
 
-  function processResultBatch(examId) {
+  async function processOmrImageBatch(examId) {
     const panel = document.getElementById('resultAnalyzerPanel');
     if (!panel) return;
-    const raw = panel.querySelector('#resultBatchText')?.value || '';
+    const studentFile = panel.querySelector('#studentListXlsxFile')?.files?.[0];
+    const imageFiles = [...(panel.querySelector('#omrImageBatchFile')?.files || [])];
     const output = panel.querySelector('#resultBatchOutput');
-    if (!raw.trim()) {
-      if (output) output.innerHTML = '<p class="muted-copy">CSV data দিন, তারপর Process করুন।</p>';
+    if (!studentFile || !imageFiles.length) {
+      if (output) output.innerHTML = '<p class="muted-copy">Student XLSX এবং OMR image batch দুটোই upload করুন।</p>';
       return;
     }
-    const rows = parseCSVRows(raw);
+    if (output) output.innerHTML = '<p class="muted-copy">Processing OMR images... please wait.</p>';
+    const students = await readStudentListFromXlsx(studentFile);
     const exam = findExam(examId);
     if (!exam) {
       if (output) output.innerHTML = '<p class="muted-copy">Exam not found.</p>';
       return;
     }
     const answerKey = deriveStaticAnswerKey(exam);
-    const total = answerKey.filter((item) => item !== 'CQ').length;
-    const resultRows = rows.map((row) => {
-      const answers = String(row.answers || '').toUpperCase().replace(/[^A-D]/g, '').split('');
-      let correct = 0;
-      answerKey.forEach((key, idx) => {
-        if (key !== 'CQ' && answers[idx] === key) correct += 1;
+    const detected = [];
+    for (const file of imageFiles) {
+      const omr = await detectOmrFromImage(file, answerKey.length);
+      const student = students.get(omr.roll) || {};
+      const result = evaluateDetectedAnswers(answerKey, omr.answers);
+      detected.push({
+        roll: omr.roll || '',
+        student_name: student.student_name || '',
+        class: student.class || '',
+        phone_number: student.phone_number || '',
+        correct: result.correct,
+        wrong: result.wrong,
+        not_answered: result.notAnswered,
+        total: result.total,
+        score: result.correct,
+        percent: result.total ? ((result.correct / result.total) * 100).toFixed(2) : '0.00',
       });
-      const percentage = total ? ((correct / total) * 100).toFixed(2) : '0.00';
-      return { roll: row.roll || row.student_id || '', name: row.name || '', set: row.set || '', correct, total, percentage };
-    });
+    }
+    detected.sort((a, b) => (b.score - a.score) || (a.wrong - b.wrong) || a.roll.localeCompare(b.roll));
+    detected.forEach((row, index) => { row.merit_position = index + 1; });
+    window.__latestOmrBatchResult = detected;
     if (!output) return;
-    output.innerHTML = resultRows.length
-      ? `<div class="table-wrap"><table><thead><tr><th>Roll</th><th>Name</th><th>Set</th><th>Correct</th><th>Total</th><th>Percent</th></tr></thead><tbody>${resultRows.map((item) => `<tr><td>${escapeHtml(item.roll)}</td><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.set)}</td><td>${item.correct}</td><td>${item.total}</td><td>${item.percentage}%</td></tr>`).join('')}</tbody></table></div>`
-      : '<p class="muted-copy">No valid student row found.</p>';
+    output.innerHTML = detected.length
+      ? `<div class="table-wrap"><table><thead><tr><th>Merit</th><th>Roll</th><th>Name</th><th>Class</th><th>Phone</th><th>Correct</th><th>Wrong</th><th>Not Answered</th><th>Total</th><th>Percent</th></tr></thead><tbody>${detected.map((item) => `<tr><td>${item.merit_position}</td><td>${escapeHtml(item.roll)}</td><td>${escapeHtml(item.student_name)}</td><td>${escapeHtml(item.class)}</td><td>${escapeHtml(item.phone_number)}</td><td>${item.correct}</td><td>${item.wrong}</td><td>${item.not_answered}</td><td>${item.total}</td><td>${item.percent}%</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="muted-copy">No valid OMR detected.</p>';
   }
 
   function deriveStaticAnswerKey(exam) {
@@ -1163,6 +1172,135 @@
       if (question.type !== 'mcq') return 'CQ';
       return String.fromCharCode(65 + (Number(question.correct) || 0));
     });
+  }
+
+  async function readStudentListFromXlsx(file) {
+    const XLSX = await ensureXlsxLib();
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    const map = new Map();
+    rows.forEach((row) => {
+      const roll = String(row.roll_number || row.roll || row.Roll || '').trim();
+      if (!roll) return;
+      map.set(roll, {
+        student_name: String(row.student_name || row.name || row.StudentName || '').trim(),
+        class: String(row.class || row.Class || '').trim(),
+        phone_number: String(row.phone_number || row.phone || row.Phone || '').trim(),
+      });
+    });
+    return map;
+  }
+
+  async function ensureXlsxLib() {
+    if (window.XLSX) return window.XLSX;
+    await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+    return window.XLSX;
+  }
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function detectOmrFromImage(file, questionCount) {
+    const imageBitmap = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = 2480;
+    canvas.height = 3508;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(imageBitmap, 0, 0, canvas.width, canvas.height);
+    const getDarkness = (cx, cy, radius = 10) => {
+      const sample = ctx.getImageData(Math.max(0, Math.floor(cx - radius)), Math.max(0, Math.floor(cy - radius)), radius * 2, radius * 2).data;
+      let total = 0;
+      let count = 0;
+      for (let i = 0; i < sample.length; i += 4) {
+        const gray = (sample[i] + sample[i + 1] + sample[i + 2]) / 3;
+        total += (255 - gray);
+        count += 1;
+      }
+      return count ? total / count : 0;
+    };
+    const detectColumnDigits = (startX, startY, columns, rowGap, colGap) => {
+      const digits = [];
+      for (let col = 0; col < columns; col += 1) {
+        const x = startX + col * colGap;
+        let best = -1;
+        let bestScore = -1;
+        for (let digit = 0; digit < 10; digit += 1) {
+          const y = startY + digit * rowGap;
+          const score = getDarkness(x, y, 8);
+          if (score > bestScore) {
+            bestScore = score;
+            best = digit;
+          }
+        }
+        digits.push(bestScore > 25 ? String(best) : '');
+      }
+      return digits.join('').replace(/\s+/g, '');
+    };
+    const roll = detectColumnDigits(1800, 980, 6, 24, 36);
+    const answers = [];
+    const startX = 210;
+    const startY = 980;
+    const rowGap = 80;
+    const colGap = 610;
+    const optionGap = 150;
+    const rows = Math.ceil(questionCount / 3);
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < 3; col += 1) {
+        const idx = row * 3 + col;
+        if (idx >= questionCount) break;
+        const baseX = startX + col * colGap + 250;
+        const baseY = startY + row * rowGap;
+        const labels = ['A', 'B', 'C', 'D'];
+        let bestLabel = '';
+        let bestScore = -1;
+        labels.forEach((label, optionIndex) => {
+          const score = getDarkness(baseX + optionIndex * optionGap, baseY, 10);
+          if (score > bestScore) {
+            bestScore = score;
+            bestLabel = label;
+          }
+        });
+        answers.push(bestScore > 23 ? bestLabel : '');
+      }
+    }
+    return { roll, answers };
+  }
+
+  function evaluateDetectedAnswers(answerKey, markedAnswers) {
+    let correct = 0;
+    let wrong = 0;
+    let notAnswered = 0;
+    let total = 0;
+    answerKey.forEach((key, idx) => {
+      if (key === 'CQ') return;
+      total += 1;
+      const marked = markedAnswers[idx] || '';
+      if (!marked) notAnswered += 1;
+      else if (marked === key) correct += 1;
+      else wrong += 1;
+    });
+    return { correct, wrong, notAnswered, total };
+  }
+
+  async function exportLatestResultWorkbook() {
+    const rows = window.__latestOmrBatchResult || [];
+    if (!rows.length) return showToast('Process result first, then export.', 'error');
+    const XLSX = await ensureXlsxLib();
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, 'Results');
+    XLSX.writeFile(book, 'omr-result-batch.xlsx');
   }
 
   function getQuestionFilters() {
