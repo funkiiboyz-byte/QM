@@ -1430,6 +1430,25 @@ body.theme-dark .summary-card {
   line-height: 1.6;
 }
 
+.math-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  line-height: 1;
+  font-size: 0.92em;
+  margin: 0 0.08em;
+}
+
+.math-frac__num {
+  border-bottom: 1px solid currentColor;
+  padding: 0 0.18em 0.05em;
+}
+
+.math-frac__den {
+  padding: 0.05em 0.18em 0;
+}
+
 .app-form {
   display: grid;
   gap: 16px;
@@ -1616,6 +1635,110 @@ body.theme-dark .summary-card {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.exam-actions-row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
+  padding-bottom: 2px;
+}
+
+#printFormatActions {
+  margin-top: 12px;
+}
+
+.omr-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.student-search input {
+  border-radius: 14px;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.08);
+}
+
+.result-card {
+  border: 1px solid #c7d2fe;
+  border-radius: 16px;
+  padding: 16px;
+  background: linear-gradient(145deg, #f8fbff 0%, #ffffff 52%, #f3f9ff 100%);
+  box-shadow: 0 10px 28px rgba(37, 99, 235, 0.12);
+}
+
+.result-card h1 {
+  margin: 0;
+  text-align: center;
+  color: #1e3a8a;
+}
+
+.result-card__head p {
+  margin: 4px 0 12px 0;
+  text-align: center;
+  color: #475569;
+}
+
+.result-card__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.result-card__meta div {
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.result-card__meta strong,
+.result-card__meta span {
+  display: block;
+}
+
+.result-card__meta strong {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.result-card__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.result-card__stats article {
+  border-radius: 12px;
+  background: #e0ecff;
+  padding: 10px;
+  text-align: center;
+}
+
+.result-card__stats strong {
+  display: block;
+  font-size: 22px;
+  color: #1e40af;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+  .marksheet-onepage {
+    width: 190mm;
+    min-height: 265mm;
+    box-sizing: border-box;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin: 0 auto;
+  }
 }
 
 .assignment-box {
