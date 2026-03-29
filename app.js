@@ -1310,7 +1310,8 @@
     const exportBtn = document.getElementById('exportOmrResultBtn');
     const output = document.getElementById('resultAnalyseOutput');
     const fileInput = document.getElementById('resultOmrImages');
-    if (!examSelect || !processBtn || !exportBtn || !output || !fileInput) return;
+    const preview = document.getElementById('resultOmrPreview');
+    if (!examSelect || !processBtn || !exportBtn || !output || !fileInput || !preview) return;
     const params = new URLSearchParams(window.location.search);
     const preselected = params.get('examId') || '';
     examSelect.innerHTML = state.exams.length
@@ -1329,6 +1330,19 @@
       output.innerHTML = renderClassWiseResultTable(rows);
     });
     exportBtn.addEventListener('click', exportLatestResultWorkbook);
+    fileInput.addEventListener('change', () => renderOmrUploadPreview(fileInput.files, preview));
+  }
+
+  function renderOmrUploadPreview(files, target) {
+    const list = [...(files || [])];
+    if (!list.length) {
+      target.innerHTML = '<p class="muted-copy">No OMR image selected yet.</p>';
+      return;
+    }
+    target.innerHTML = list.map((file, index) => {
+      const url = URL.createObjectURL(file);
+      return `<article class="entity-card entity-card--stacked"><div><h4>OMR ${index + 1}</h4><p class="muted-copy">${escapeHtml(file.name)}</p></div><img src="${url}" alt="OMR preview ${index + 1}" style="width:100%;max-height:220px;object-fit:contain;border:1px solid #d8dee9;border-radius:12px;background:#fff;" /></article>`;
+    }).join('');
   }
 
   async function analyseOmrBatchForExam(examId, imageFiles) {
