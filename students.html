@@ -84,8 +84,14 @@
 <div class="panel-card__header">
 <h3>Student Directory</h3>
 </div>
-<label>Search Student<input id="studentSearch" type="text" placeholder="Search by name, roll, phone" />
+<label class="student-search">Search Student<input id="studentSearch" type="text" placeholder="Search by name, roll, phone" />
 </label>
+<div class="entity-actions">
+<label>Class Filter<select id="studentClassFilter"><option value="">All Classes</option><option value="Class 6">Class 6</option><option value="Class 7">Class 7</option><option value="Class 8">Class 8</option><option value="Class 9">Class 9</option><option value="Class 10">Class 10</option><option value="Class 11">Class 11</option><option value="Class 12">Class 12</option></select></label>
+<button id="exportStudentsAllBtn" type="button" class="toolbar-button">Export All</button>
+<button id="exportStudentsClassBtn" type="button" class="toolbar-button">Export Class</button>
+</div>
+<div id="studentClassCount" class="muted-copy"></div>
 <div id="studentList" class="entity-list">
 </div>
 <div id="studentProfile" class="preview-surface preview-surface--small"></div>

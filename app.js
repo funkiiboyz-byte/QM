@@ -59,6 +59,7 @@
       case 'handle-exams': initHandleExamsPage(); break;
       case 'students': initStudentsPage(); break;
       case 'result-analyse': initResultAnalysePage(); break;
+      case 'student-profile': initStudentProfilePage(); break;
       case 'analytics': initAnalyticsPage(); break;
       case 'devices': initDevicesPage(); break;
       case 'passwords': initPasswordsPage(); break;
@@ -1250,23 +1251,30 @@
     };
     const roll = detectColumnDigits(1800, 980, 6, 24, 36);
     const answers = [];
-    const startX = 480;
+    const startX = 285;
     const startY = 980;
-    const rowGap = 44;
-    const optionGap = 140;
-    for (let idx = 0; idx < questionCount; idx += 1) {
-      const baseY = startY + idx * rowGap;
-      const labels = ['A', 'B', 'C', 'D'];
-      let bestLabel = '';
-      let bestScore = -1;
-      labels.forEach((label, optionIndex) => {
-        const score = getDarkness(startX + optionIndex * optionGap, baseY, 10);
-        if (score > bestScore) {
-          bestScore = score;
-          bestLabel = label;
-        }
-      });
-      answers.push(bestScore > 23 ? bestLabel : '');
+    const rowGap = 30;
+    const colGap = 560;
+    const optionGap = 72;
+    const colSize = Math.ceil(questionCount / 3);
+    for (let col = 0; col < 3; col += 1) {
+      for (let row = 0; row < colSize; row += 1) {
+        const idx = col * colSize + row;
+        if (idx >= questionCount) break;
+        const baseY = startY + row * rowGap;
+        const baseX = startX + col * colGap;
+        const labels = ['A', 'B', 'C', 'D'];
+        let bestLabel = '';
+        let bestScore = -1;
+        labels.forEach((label, optionIndex) => {
+          const score = getDarkness(baseX + optionIndex * optionGap, baseY, 7);
+          if (score > bestScore) {
+            bestScore = score;
+            bestLabel = label;
+          }
+        });
+        answers.push(bestScore > 20 ? bestLabel : '');
+      }
     }
     return { roll, answers };
   }
@@ -1547,10 +1555,18 @@
       const { answerKey } = buildQuestionSet(questions, config);
       const setLabel = config.setLabelStyle === 'numeric' ? `${setIndex + 1}` : String.fromCharCode(65 + setIndex);
       const densityClass = answerKey.length > 80 ? 'is-dense-3' : (answerKey.length > 50 ? 'is-dense-2' : (answerKey.length > 30 ? 'is-dense-1' : ''));
-      const questionRows = answerKey.map((_, idx) => `<div class="omr-q-row"><span class="qno">${idx + 1}.</span><div class="bubble-group"><span>A</span><span>B</span><span>C</span><span>D</span></div></div>`).join('');
+      const colSize = Math.ceil(answerKey.length / 3);
+      const questionRows = `<div class="omr-columns">${Array.from({ length: 3 }, (_, col) => {
+        const columnRows = Array.from({ length: colSize }, (_, row) => {
+          const idx = col * colSize + row;
+          if (idx >= answerKey.length) return '';
+          return `<div class="omr-q-row"><span class="qno">${idx + 1}.</span><div class="bubble-group"><span>A</span><span>B</span><span>C</span><span>D</span></div></div>`;
+        }).join('');
+        return `<div class="omr-col">${columnRows}</div>`;
+      }).join('')}</div>`;
       pages.push(`<section class="omr-page ${densityClass}"><header class="board-head board-head--${escapeAttr(config.headerTheme || 'classic')}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span><span><strong>Exam Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p></header><div class="omr-warning">উত্তরপত্রে নির্দিষ্ট স্থান ব্যতীত অন্য কোথাও লেখা যাবে না</div><div class="omr-layout"><div class="omr-left"><div class="omr-table-head"><span>প্রশ্ন নম্বর</span><span>উত্তর</span></div><div class="omr-question-grid">${questionRows || '<p>No assigned question found.</p>'}</div></div><div class="omr-right"><div class="id-grid">${buildDigitColumns(6, 'রোল নম্বর')}${buildDigitColumns(8, 'রেজিস্ট্রেশন নম্বর')}</div><div class="set-code-box"><div class="digit-card"><div class="digit-card__title">সেট কোড</div><div class="set-bubbles"><span class="set-bubble ${setLabel === 'A' || setLabel === '1' ? 'is-active' : ''}">A</span><span class="set-bubble ${setLabel === 'B' || setLabel === '2' ? 'is-active' : ''}">B</span><span class="set-bubble ${setLabel === 'C' || setLabel === '3' ? 'is-active' : ''}">C</span><span class="set-bubble ${setLabel === 'D' || setLabel === '4' ? 'is-active' : ''}">D</span></div></div></div><div class="name-card"><div><strong>শিক্ষার্থীর নাম</strong></div><div class="line"></div><div><strong>ফোন নম্বর</strong></div><div class="line"></div><div><strong>শিক্ষার্থীর স্বাক্ষর</strong></div><div class="line"></div></div></div></div><div class="omr-note"><strong>নির্দেশাবলী:</strong> কালো বল পয়েন্ট কলম দিয়ে বৃত্ত সম্পূর্ণ ভরাট করুন।</div></section>`);
     }
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)} OMR</title><style>@page{size:A4 portrait;margin:6mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;color:#111;padding:8px;background:#fff}.omr-page{width:198mm;height:285mm;max-width:198mm;margin:0 auto 8px auto;border:2px solid #111;padding:8px 10px;box-sizing:border-box;page-break-after:always;page-break-inside:avoid;break-inside:avoid;overflow:hidden}.omr-page:last-child{page-break-after:auto}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}.board-head h1{margin:0;font-size:24px}.board-head h2{margin:2px 0 6px 0;font-size:18px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0}.omr-warning{text-align:center;border:2px solid #111;background:#fff0fb;color:#861657;font-weight:700;font-size:13px;padding:6px;margin:10px 0}.omr-layout{display:grid;grid-template-columns:1.5fr 1fr;gap:12px}.omr-left{border:1px solid #e879c4;padding:8px;background:#fff9fd}.omr-table-head{display:grid;grid-template-columns:88px 1fr;font-weight:700;font-size:13px;background:#ffd6f1;border:1px solid #e879c4;padding:4px 6px;margin-bottom:6px}.omr-question-grid{display:grid;grid-template-columns:1fr;gap:6px}.omr-line{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 8px}.omr-q-row{display:flex;align-items:center;gap:8px;border:1px solid #f3b0dc;background:#fff;padding:3px 4px}.omr-q-row--empty{visibility:hidden}.qno{min-width:22px;font-weight:700}.bubble-group{display:flex;gap:5px}.bubble-group span{width:19px;height:19px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.omr-right{display:flex;flex-direction:column;gap:8px}.id-grid{display:grid;grid-template-columns:1fr;gap:8px}.digit-card{border:1px solid #e879c4;background:#fff9fd;padding:6px}.digit-card__title{font-weight:700;font-size:12px;text-align:center;margin-bottom:2px}.digit-card__hint{text-align:center;font-size:10px;color:#7a1e4f;margin-bottom:4px}.digit-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:4px}.digit-col{display:flex;flex-direction:column;align-items:center;gap:2px}.digit-col__write{width:17px;height:17px;border:1px solid #7a1e4f;background:#fff}.digit-bubble{width:17px;height:17px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#9d174d}.set-code-box .set-bubbles{display:flex;justify-content:center;gap:8px;padding:2px 0}.set-bubble{width:20px;height:20px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.set-bubble.is-active{background:#c02686;color:#fff}.name-card{border:1px solid #e879c4;background:#fff;padding:8px;display:grid;grid-template-columns:1fr;gap:6px;font-size:12px}.line{border-bottom:1px solid #444;height:16px}.omr-note{margin-top:8px;font-size:12px;border-top:1px dashed #999;padding-top:6px}.omr-page.is-dense-1 .omr-line{gap:4px 6px}.omr-page.is-dense-1 .omr-q-row{padding:2px 3px}.omr-page.is-dense-2 .bubble-group span{width:16px;height:16px;font-size:9px}.omr-page.is-dense-2 .qno{min-width:18px;font-size:11px}.omr-page.is-dense-3 .omr-layout{grid-template-columns:1.7fr 1fr;gap:8px}.omr-page.is-dense-3 .omr-line{gap:3px 5px}.omr-page.is-dense-3 .omr-q-row{gap:4px;padding:2px 2px}.omr-page.is-dense-3 .bubble-group{gap:3px}.omr-page.is-dense-3 .bubble-group span{width:14px;height:14px;font-size:8px}.omr-page.is-dense-3 .qno{min-width:14px;font-size:10px}.omr-page.is-dense-3 .board-head h1{font-size:20px}.omr-page.is-dense-3 .board-head h2{font-size:14px}@media print{body{padding:0}}</style></head><body>${pages.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)} OMR</title><style>@page{size:A4 portrait;margin:6mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;color:#111;padding:8px;background:#fff}.omr-page{width:198mm;height:285mm;max-width:198mm;margin:0 auto 8px auto;border:2px solid #111;padding:8px 10px;box-sizing:border-box;page-break-after:always;page-break-inside:avoid;break-inside:avoid;overflow:hidden}.omr-page:last-child{page-break-after:auto}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}.board-head h1{margin:0;font-size:24px}.board-head h2{margin:2px 0 6px 0;font-size:18px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0}.omr-warning{text-align:center;border:2px solid #111;background:#fff0fb;color:#861657;font-weight:700;font-size:13px;padding:6px;margin:10px 0}.omr-layout{display:grid;grid-template-columns:1.5fr 1fr;gap:12px}.omr-left{border:1px solid #e879c4;padding:8px;background:#fff9fd}.omr-table-head{display:grid;grid-template-columns:88px 1fr;font-weight:700;font-size:13px;background:#ffd6f1;border:1px solid #e879c4;padding:4px 6px;margin-bottom:6px}.omr-question-grid{display:block}.omr-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 8px}.omr-col{display:grid;gap:4px}.omr-q-row{display:flex;align-items:center;gap:8px;border:1px solid #f3b0dc;background:#fff;padding:2px 3px}.qno{min-width:22px;font-weight:700}.bubble-group{display:flex;gap:5px}.bubble-group span{width:19px;height:19px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.omr-right{display:flex;flex-direction:column;gap:8px}.id-grid{display:grid;grid-template-columns:1fr;gap:8px}.digit-card{border:1px solid #e879c4;background:#fff9fd;padding:6px}.digit-card__title{font-weight:700;font-size:12px;text-align:center;margin-bottom:2px}.digit-card__hint{text-align:center;font-size:10px;color:#7a1e4f;margin-bottom:4px}.digit-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:4px}.digit-col{display:flex;flex-direction:column;align-items:center;gap:2px}.digit-col__write{width:17px;height:17px;border:1px solid #7a1e4f;background:#fff}.digit-bubble{width:17px;height:17px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#9d174d}.set-code-box .set-bubbles{display:flex;justify-content:center;gap:8px;padding:2px 0}.set-bubble{width:20px;height:20px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.set-bubble.is-active{background:#c02686;color:#fff}.name-card{border:1px solid #e879c4;background:#fff;padding:8px;display:grid;grid-template-columns:1fr;gap:6px;font-size:12px}.line{border-bottom:1px solid #444;height:16px}.omr-note{margin-top:8px;font-size:12px;border-top:1px dashed #999;padding-top:6px}.omr-page.is-dense-1 .omr-columns{gap:4px 6px}.omr-page.is-dense-2 .bubble-group span{width:14px;height:14px;font-size:8px}.omr-page.is-dense-2 .qno{min-width:16px;font-size:10px}.omr-page.is-dense-3 .omr-layout{grid-template-columns:1.7fr 1fr;gap:8px}.omr-page.is-dense-3 .omr-columns{gap:3px 5px}.omr-page.is-dense-3 .omr-q-row{gap:3px;padding:1px 2px}.omr-page.is-dense-3 .bubble-group{gap:2px}.omr-page.is-dense-3 .bubble-group span{width:12px;height:12px;font-size:7px}.omr-page.is-dense-3 .qno{min-width:12px;font-size:9px}.omr-page.is-dense-3 .board-head h1{font-size:18px}.omr-page.is-dense-3 .board-head h2{font-size:13px}@media print{body{padding:0}}</style></head><body>${pages.join('')}</body></html>`;
   }
 
   function printOmrSheet(examId) {
@@ -1571,6 +1587,9 @@
     document.getElementById('importStudentsBtn').addEventListener('click', importStudents);
     document.getElementById('importStudentsXlsxBtn')?.addEventListener('click', importStudentsFromXlsx);
     document.getElementById('studentSearch')?.addEventListener('input', () => renderStudents());
+    document.getElementById('studentClassFilter')?.addEventListener('change', () => renderStudents());
+    document.getElementById('exportStudentsAllBtn')?.addEventListener('click', () => exportStudentsSheet());
+    document.getElementById('exportStudentsClassBtn')?.addEventListener('click', () => exportStudentsSheet(document.getElementById('studentClassFilter')?.value || ''));
     renderStudents();
   }
 
@@ -1636,17 +1655,19 @@
 
   function renderStudents() {
     const target = document.getElementById('studentList');
-    const profile = document.getElementById('studentProfile');
+    const counter = document.getElementById('studentClassCount');
     if (!target) return;
     if (!state.students.length) return target.innerHTML = emptyState('No students added yet.');
     const query = (document.getElementById('studentSearch')?.value || '').trim().toLowerCase();
+    const classFilter = document.getElementById('studentClassFilter')?.value || '';
     const filtered = state.students.filter((student) => {
+      if (classFilter && (student.className || student.course || '') !== classFilter) return false;
       if (!query) return true;
       return [student.name, student.rollNumber, student.phone, student.className, student.institute].some((item) => String(item || '').toLowerCase().includes(query));
     });
     if (!filtered.length) {
       target.innerHTML = emptyState('No student matched your search.');
-      if (profile) profile.innerHTML = '<p class="muted-copy">Select a student to see profile and exam results.</p>';
+      if (counter) counter.textContent = 'No student in current filter.';
       return;
     }
     const grouped = filtered.reduce((acc, student) => {
@@ -1655,7 +1676,8 @@
       acc[key].push(student);
       return acc;
     }, {});
-    target.innerHTML = Object.entries(grouped).map(([className, items]) => `<section class="preview-surface preview-surface--small"><h4>Class: ${escapeHtml(className)}</h4>${items.map((student) => `<article class="entity-card entity-card--stacked" data-view-student="${student.id}"><div class="entity-card__head"><div><h4>${escapeHtml(student.name)}</h4><p>Roll: ${escapeHtml(student.rollNumber || student.studentId || '')} · ${escapeHtml(student.institute || '')} · ${escapeHtml(student.phone || student.email || '')}</p></div><span class="status-pill ${student.active ? 'is-live' : ''}">${student.active ? 'Active' : 'Inactive'}</span></div><div class="entity-actions"><button class="toolbar-button" data-toggle-student="${student.id}">${student.active ? 'Deactivate' : 'Activate'}</button><button class="toolbar-button toolbar-button--danger" data-delete-student="${student.id}">Delete</button></div></article>`).join('')}</section>`).join('');
+    if (counter) counter.textContent = Object.entries(grouped).map(([name, list]) => `${name}: ${list.length}`).join(' | ');
+    target.innerHTML = Object.entries(grouped).map(([className, items]) => `<section class="preview-surface preview-surface--small"><h4>Class: ${escapeHtml(className)}</h4>${items.map((student) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(student.name)}</h4><p>Roll: ${escapeHtml(student.rollNumber || student.studentId || '')} · ${escapeHtml(student.institute || '')} · ${escapeHtml(student.phone || student.email || '')}</p></div><span class="status-pill ${student.active ? 'is-live' : ''}">${student.active ? 'Active' : 'Inactive'}</span></div><div class="entity-actions"><a class="toolbar-button" href="student-profile.html?studentId=${student.id}">View Profile</a><button class="toolbar-button" data-toggle-student="${student.id}">${student.active ? 'Deactivate' : 'Activate'}</button><button class="toolbar-button toolbar-button--danger" data-delete-student="${student.id}">Delete</button></div></article>`).join('')}</section>`).join('');
     target.querySelectorAll('[data-toggle-student]').forEach((button) => button.addEventListener('click', () => { const student = state.students.find((item) => item.id === button.dataset.toggleStudent); student.active = !student.active; saveState(); renderStudents(); }));
     target.querySelectorAll('[data-delete-student]').forEach((button) => button.addEventListener('click', () => { state.students = state.students.filter((item) => item.id !== button.dataset.deleteStudent); saveState(); renderStudents(); }));
     target.querySelectorAll('[data-view-student]').forEach((card) => card.addEventListener('click', (event) => {
@@ -1677,6 +1699,52 @@
       return `<tr><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
     }).join('');
     target.innerHTML = `<h4>${escapeHtml(student.name)} · Profile</h4><p>Roll: ${escapeHtml(student.rollNumber || '')} · Class: ${escapeHtml(student.className || '')} · Phone: ${escapeHtml(student.phone || '')}</p><div class="table-wrap"><table><thead><tr><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No exam result yet.</td></tr>'}</tbody></table></div>`;
+  }
+
+  function buildStudentProfileMarkup(studentId) {
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return '<p class="muted-copy">Student not found.</p>';
+    const attempts = state.attempts.filter((attempt) => attempt.studentId === studentId);
+    const rows = attempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
+    }).join('');
+    return `<div class="result-card"><h2>MegaPrep · Student Result Card</h2><p><strong>Name:</strong> ${escapeHtml(student.name)} | <strong>Roll:</strong> ${escapeHtml(student.rollNumber || '')} | <strong>Class:</strong> ${escapeHtml(student.className || '')}</p><p><strong>Institute:</strong> ${escapeHtml(student.institute || '')} | <strong>Phone:</strong> ${escapeHtml(student.phone || '')}</p><div class="table-wrap"><table><thead><tr><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No exam result yet.</td></tr>'}</tbody></table></div></div>`;
+  }
+
+  function initStudentProfilePage() {
+    const target = document.getElementById('studentProfilePage');
+    const printBtn = document.getElementById('printStudentMarksheetBtn');
+    if (!target || !printBtn) return;
+    const params = new URLSearchParams(window.location.search);
+    const studentId = params.get('studentId') || '';
+    target.innerHTML = buildStudentProfileMarkup(studentId);
+    printBtn.addEventListener('click', () => {
+      const win = window.open('', '_blank', 'width=1000,height=800');
+      if (!win) return showToast('Popup blocked by browser.', 'error');
+      win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Marksheet</title><link rel="stylesheet" href="styles.css"></head><body>${buildStudentProfileMarkup(studentId)}</body></html>`);
+      win.document.close();
+      win.print();
+    });
+  }
+
+  async function exportStudentsSheet(className = '') {
+    const XLSX = await ensureXlsxLib();
+    const rows = state.students
+      .filter((student) => !className || (student.className || student.course || '') === className)
+      .map((student) => ({
+        roll_number: student.rollNumber || '',
+        student_name: student.name || '',
+        class: student.className || student.course || '',
+        institute: student.institute || '',
+        phone_number: student.phone || '',
+      }));
+    if (!rows.length) return showToast('No student found for export.', 'error');
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, className || 'All Students');
+    XLSX.writeFile(book, className ? `${className.replace(/\s+/g, '-').toLowerCase()}-students.xlsx` : 'all-students.xlsx');
   }
 
   function initAnalyticsPage() {

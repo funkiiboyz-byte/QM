@@ -1656,6 +1656,25 @@ body.theme-dark .summary-card {
   gap: 10px;
 }
 
+.student-search input {
+  border-radius: 14px;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.08);
+}
+
+.result-card {
+  border: 2px solid #9ec9a8;
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, #f7fffb 0%, #ffffff 100%);
+}
+
+.result-card h2 {
+  margin: 0 0 10px 0;
+  text-align: center;
+  color: #1d4ed8;
+}
+
 .assignment-box {
   display: grid;
   gap: 12px;
