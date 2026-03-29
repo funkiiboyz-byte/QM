@@ -1637,6 +1637,13 @@ body.theme-dark .summary-card {
   flex-wrap: wrap;
 }
 
+.exam-actions-row {
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
 .assignment-box {
   display: grid;
   gap: 12px;
