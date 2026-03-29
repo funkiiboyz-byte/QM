@@ -1650,6 +1650,12 @@ body.theme-dark .summary-card {
   margin-top: 12px;
 }
 
+.omr-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
 .assignment-box {
   display: grid;
   gap: 12px;
