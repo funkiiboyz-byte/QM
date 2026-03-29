@@ -77,10 +77,13 @@
 <label class="full-span">Instruction / Prompt<textarea id="jsonPromptText" rows="5" placeholder='{"question":"...","options":[...],"correct":1}'>
 </textarea>
 </label>
+<label class="full-span">OpenAI API Key (for direct ChatGPT generation)<input id="openaiApiKey" type="password" placeholder="sk-..." autocomplete="off" />
+</label>
 <div class="full-span app-form__actions">
 <button id="generatePromptBtn" type="button" class="toolbar-button">Generate Curriculum Prompt</button>
 <button id="applyPromptBtn" type="button" class="submit-button">Apply Prompt to Editor</button>
 <button id="openChatGptBtn" type="button" class="toolbar-button">Open ChatGPT + Copy Prompt</button>
+<button id="generateWithAiBtn" type="button" class="submit-button">Generate with ChatGPT API</button>
 </div>
 </form>
 <div class="segmented-control" id="questionModeTabs">
