@@ -1726,6 +1726,27 @@ body.theme-dark .summary-card {
   color: #1e40af;
 }
 
+.result-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.result-table th,
+.result-table td {
+  border: 1px solid #222;
+  padding: 6px 5px;
+  font-size: 12px;
+  text-align: center;
+  word-break: break-word;
+}
+
+.result-table th {
+  background: #4bb8c3;
+  color: #0f172a;
+  font-weight: 800;
+}
+
 @media print {
   @page {
     size: A4 portrait;
