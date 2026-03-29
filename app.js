@@ -1680,6 +1680,25 @@
     target.innerHTML = Object.entries(grouped).map(([className, items]) => `<section class="preview-surface preview-surface--small"><h4>Class: ${escapeHtml(className)}</h4>${items.map((student) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(student.name)}</h4><p>Roll: ${escapeHtml(student.rollNumber || student.studentId || '')} · ${escapeHtml(student.institute || '')} · ${escapeHtml(student.phone || student.email || '')}</p></div><span class="status-pill ${student.active ? 'is-live' : ''}">${student.active ? 'Active' : 'Inactive'}</span></div><div class="entity-actions"><a class="toolbar-button" href="student-profile.html?studentId=${student.id}">View Profile</a><button class="toolbar-button" data-toggle-student="${student.id}">${student.active ? 'Deactivate' : 'Activate'}</button><button class="toolbar-button toolbar-button--danger" data-delete-student="${student.id}">Delete</button></div></article>`).join('')}</section>`).join('');
     target.querySelectorAll('[data-toggle-student]').forEach((button) => button.addEventListener('click', () => { const student = state.students.find((item) => item.id === button.dataset.toggleStudent); student.active = !student.active; saveState(); renderStudents(); }));
     target.querySelectorAll('[data-delete-student]').forEach((button) => button.addEventListener('click', () => { state.students = state.students.filter((item) => item.id !== button.dataset.deleteStudent); saveState(); renderStudents(); }));
+    target.querySelectorAll('[data-view-student]').forEach((card) => card.addEventListener('click', (event) => {
+      if (event.target.closest('button')) return;
+      renderStudentProfile(card.dataset.viewStudent);
+    }));
+    if (profile && !profile.innerHTML.trim()) profile.innerHTML = '<p class="muted-copy">Select a student to see profile and exam results.</p>';
+  }
+
+  function renderStudentProfile(studentId) {
+    const target = document.getElementById('studentProfile');
+    if (!target) return;
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return target.innerHTML = '<p class="muted-copy">Student not found.</p>';
+    const attempts = state.attempts.filter((attempt) => attempt.studentId === studentId);
+    const rows = attempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
+    }).join('');
+    target.innerHTML = `<h4>${escapeHtml(student.name)} · Profile</h4><p>Roll: ${escapeHtml(student.rollNumber || '')} · Class: ${escapeHtml(student.className || '')} · Phone: ${escapeHtml(student.phone || '')}</p><div class="table-wrap"><table><thead><tr><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No exam result yet.</td></tr>'}</tbody></table></div>`;
   }
 
   function buildStudentProfileMarkup(studentId) {
@@ -1786,6 +1805,67 @@
       if (!next || next !== confirm) return showToast('Password confirmation failed.', 'error');
       state.credentials.adminPassword = next; saveState(); event.target.reset(); showToast('Password updated.');
     });
+    /**
+ * A utility to strip LaTeX commands and convert to plain text.
+ * Note: This handles common formatting and math symbols.
+ */
+const latexToText = (latex) => {
+  let text = latex;
+
+  // 1. Handle escaped characters (e.g., \{ -> {, \& -> &)
+  text = text.replace(/\\([&%$#_{}])/g, '$1');
+
+  // 2. Remove comments
+  text = text.replace(/%.*$/gm, '');
+
+  // 3. Remove common environments (begin/end blocks)
+  text = text.replace(/\\begin\{.*?\}/g, '');
+  text = text.replace(/\\end\{.*?\}/g, '');
+
+  // 4. Convert specific math symbols/commands to readable equivalents
+  const replacements = [
+    { regex: /\\alpha/g, subst: 'α' },
+    { regex: /\\beta/g, subst: 'β' },
+    { regex: /\\gamma/g, subst: 'γ' },
+    { regex: /\\infty/g, subst: '∞' },
+    { regex: /\\pm/g, subst: '±' },
+    { regex: /\\neq/g, subst: '≠' },
+    { regex: /\\approx/g, subst: '≈' },
+    { regex: /\\times/g, subst: '×' },
+    { regex: /\\div/g, subst: '÷' },
+    { regex: /\\rightarrow/g, subst: '→' }
+  ];
+
+  replacements.forEach(item => {
+    text = text.replace(item.regex, item.subst);
+  });
+
+  // 5. Remove formatting commands but keep the content: \textbf{Hello} -> Hello
+  // This uses a non-greedy match for the content inside braces
+  text = text.replace(/\\[a-zA-Z]+\{(.*?)\}/g, '$1');
+
+  // 6. Handle subscripts (_) and superscripts (^)
+  text = text.replace(/\^\{(.*?)\}/g, '^($1)');
+  text = text.replace(/_\{(.*?)\}/g, '_($1)');
+
+  // 7. Strip remaining backslashes and lone commands
+  text = text.replace(/\\[a-zA-Z]+/g, '');
+
+  // 8. Clean up whitespace
+  return text.trim().replace(/\s\s+/g, ' ');
+};
+
+// --- Example Usage ---
+const sampleLatex = `
+\\section{Introduction}
+The formula for the area of a circle is $A = \\pi r^2$. 
+\\textbf{Note:} If the radius is \\infty, the area is also \\infty.
+`;
+
+console.log("--- Original LaTeX ---");
+console.log(sampleLatex);
+console.log("\n--- Plain Text Output ---");
+console.log(latexToText(sampleLatex));
   }
 
   function parseCommaList(value) { return value.split(',').map((item) => item.trim()).filter(Boolean); }
