@@ -1073,7 +1073,7 @@
       holder.innerHTML = '<p class="muted-copy">Select an exam to use Edit/Publish/Download/Print actions.</p>';
       return;
     }
-    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
+    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><button class="toolbar-button" data-sidebar-result="${exam.id}">Result Analyse</button><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
     holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', () => {
       const item = findExam(exam.id);
       if (!item) return showToast('Exam not found.', 'error');
@@ -1106,6 +1106,63 @@
     holder.querySelector('[data-sidebar-download]')?.addEventListener('click', () => downloadExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print]')?.addEventListener('click', () => printExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print-omr]')?.addEventListener('click', () => printOmrSheet(exam.id));
+    holder.querySelector('[data-sidebar-result]')?.addEventListener('click', () => renderResultAnalyzer(exam));
+  }
+
+  function renderResultAnalyzer(exam) {
+    const panel = document.getElementById('resultAnalyzerPanel');
+    if (!panel) return;
+    panel.hidden = false;
+    panel.innerHTML = `<h4>Result Analyse · ${escapeHtml(exam.title)}</h4><p class="muted-copy">Batch CSV format: <code>roll,name,set,answers</code> যেখানে <code>answers</code> হবে ABCD sequence (e.g. <code>ABCDABCD</code>).</p><label class="toolbar-button toolbar-button--file">Upload OMR Batch CSV<input id="resultBatchFile" type="file" accept=".csv,text/csv" hidden /></label><label>বা CSV paste করুন<textarea id="resultBatchText" rows="6" placeholder="roll,name,set,answers&#10;101,Rafi,A,ABCDABCD..."></textarea></label><div class="entity-actions"><button id="processResultBatchBtn" type="button" class="submit-button">Process Batch Result</button></div><div id="resultBatchOutput"></div>`;
+    panel.querySelector('#resultBatchFile')?.addEventListener('change', async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      panel.querySelector('#resultBatchText').value = await file.text();
+    });
+    panel.querySelector('#processResultBatchBtn')?.addEventListener('click', () => processResultBatch(exam.id));
+  }
+
+  function processResultBatch(examId) {
+    const panel = document.getElementById('resultAnalyzerPanel');
+    if (!panel) return;
+    const raw = panel.querySelector('#resultBatchText')?.value || '';
+    const output = panel.querySelector('#resultBatchOutput');
+    if (!raw.trim()) {
+      if (output) output.innerHTML = '<p class="muted-copy">CSV data দিন, তারপর Process করুন।</p>';
+      return;
+    }
+    const rows = parseCSVRows(raw);
+    const exam = findExam(examId);
+    if (!exam) {
+      if (output) output.innerHTML = '<p class="muted-copy">Exam not found.</p>';
+      return;
+    }
+    const answerKey = deriveStaticAnswerKey(exam);
+    const total = answerKey.filter((item) => item !== 'CQ').length;
+    const resultRows = rows.map((row) => {
+      const answers = String(row.answers || '').toUpperCase().replace(/[^A-D]/g, '').split('');
+      let correct = 0;
+      answerKey.forEach((key, idx) => {
+        if (key !== 'CQ' && answers[idx] === key) correct += 1;
+      });
+      const percentage = total ? ((correct / total) * 100).toFixed(2) : '0.00';
+      return { roll: row.roll || row.student_id || '', name: row.name || '', set: row.set || '', correct, total, percentage };
+    });
+    if (!output) return;
+    output.innerHTML = resultRows.length
+      ? `<div class="table-wrap"><table><thead><tr><th>Roll</th><th>Name</th><th>Set</th><th>Correct</th><th>Total</th><th>Percent</th></tr></thead><tbody>${resultRows.map((item) => `<tr><td>${escapeHtml(item.roll)}</td><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.set)}</td><td>${item.correct}</td><td>${item.total}</td><td>${item.percentage}%</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="muted-copy">No valid student row found.</p>';
+  }
+
+  function deriveStaticAnswerKey(exam) {
+    const snapshot = exam.published && exam.publishedSnapshot ? exam.publishedSnapshot : null;
+    const questions = snapshot?.questions
+      ? snapshot.questions
+      : (exam.questionIds || []).map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
+    return questions.map((question) => {
+      if (question.type !== 'mcq') return 'CQ';
+      return String.fromCharCode(65 + (Number(question.correct) || 0));
+    });
   }
 
   function getQuestionFilters() {
@@ -1262,10 +1319,17 @@
       const { answerKey } = buildQuestionSet(questions, config);
       const setLabel = config.setLabelStyle === 'numeric' ? `${setIndex + 1}` : String.fromCharCode(65 + setIndex);
       const densityClass = answerKey.length > 80 ? 'is-dense-3' : (answerKey.length > 50 ? 'is-dense-2' : (answerKey.length > 30 ? 'is-dense-1' : ''));
-      const questionRows = answerKey.map((_, idx) => `<div class="omr-q-row"><span class="qno">${idx + 1}.</span><div class="bubble-group"><span>A</span><span>B</span><span>C</span><span>D</span></div></div>`).join('');
+      const questionRows = Array.from({ length: Math.ceil(answerKey.length / 3) }, (_, rowIndex) => {
+        const cells = Array.from({ length: 3 }, (_, colIndex) => {
+          const idx = rowIndex * 3 + colIndex;
+          if (idx >= answerKey.length) return '<div class="omr-q-row omr-q-row--empty"></div>';
+          return `<div class="omr-q-row"><span class="qno">${idx + 1}.</span><div class="bubble-group"><span>A</span><span>B</span><span>C</span><span>D</span></div></div>`;
+        }).join('');
+        return `<div class="omr-line">${cells}</div>`;
+      }).join('');
       pages.push(`<section class="omr-page ${densityClass}"><header class="board-head board-head--${escapeAttr(config.headerTheme || 'classic')}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span><span><strong>Exam Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p></header><div class="omr-warning">উত্তরপত্রে নির্দিষ্ট স্থান ব্যতীত অন্য কোথাও লেখা যাবে না</div><div class="omr-layout"><div class="omr-left"><div class="omr-table-head"><span>প্রশ্ন নম্বর</span><span>উত্তর</span></div><div class="omr-question-grid">${questionRows || '<p>No assigned question found.</p>'}</div></div><div class="omr-right"><div class="id-grid">${buildDigitColumns(6, 'রোল নম্বর')}${buildDigitColumns(8, 'রেজিস্ট্রেশন নম্বর')}</div><div class="set-code-box"><div class="digit-card"><div class="digit-card__title">সেট কোড</div><div class="set-bubbles"><span class="set-bubble ${setLabel === 'A' || setLabel === '1' ? 'is-active' : ''}">A</span><span class="set-bubble ${setLabel === 'B' || setLabel === '2' ? 'is-active' : ''}">B</span><span class="set-bubble ${setLabel === 'C' || setLabel === '3' ? 'is-active' : ''}">C</span><span class="set-bubble ${setLabel === 'D' || setLabel === '4' ? 'is-active' : ''}">D</span></div></div></div><div class="name-card"><div><strong>শিক্ষার্থীর নাম</strong></div><div class="line"></div><div><strong>ফোন নম্বর</strong></div><div class="line"></div><div><strong>শিক্ষার্থীর স্বাক্ষর</strong></div><div class="line"></div></div></div></div><div class="omr-note"><strong>নির্দেশাবলী:</strong> কালো বল পয়েন্ট কলম দিয়ে বৃত্ত সম্পূর্ণ ভরাট করুন।</div></section>`);
     }
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)} OMR</title><style>@page{size:A4 portrait;margin:6mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;color:#111;padding:8px;background:#fff}.omr-page{width:198mm;height:285mm;max-width:198mm;margin:0 auto 8px auto;border:2px solid #111;padding:8px 10px;box-sizing:border-box;page-break-after:always;page-break-inside:avoid;break-inside:avoid;overflow:hidden}.omr-page:last-child{page-break-after:auto}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}.board-head h1{margin:0;font-size:24px}.board-head h2{margin:2px 0 6px 0;font-size:18px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0}.omr-warning{text-align:center;border:2px solid #111;background:#fff0fb;color:#861657;font-weight:700;font-size:13px;padding:6px;margin:10px 0}.omr-layout{display:grid;grid-template-columns:1.5fr 1fr;gap:12px}.omr-left{border:1px solid #e879c4;padding:8px;background:#fff9fd}.omr-table-head{display:grid;grid-template-columns:88px 1fr;font-weight:700;font-size:13px;background:#ffd6f1;border:1px solid #e879c4;padding:4px 6px;margin-bottom:6px}.omr-question-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 14px}.omr-q-row{display:flex;align-items:center;gap:8px;border:1px solid #f3b0dc;background:#fff;padding:3px 4px}.qno{min-width:22px;font-weight:700}.bubble-group{display:flex;gap:5px}.bubble-group span{width:19px;height:19px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.omr-right{display:flex;flex-direction:column;gap:8px}.id-grid{display:grid;grid-template-columns:1fr;gap:8px}.digit-card{border:1px solid #e879c4;background:#fff9fd;padding:6px}.digit-card__title{font-weight:700;font-size:12px;text-align:center;margin-bottom:2px}.digit-card__hint{text-align:center;font-size:10px;color:#7a1e4f;margin-bottom:4px}.digit-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:4px}.digit-col{display:flex;flex-direction:column;align-items:center;gap:2px}.digit-col__write{width:17px;height:17px;border:1px solid #7a1e4f;background:#fff}.digit-bubble{width:17px;height:17px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#9d174d}.set-code-box .set-bubbles{display:flex;justify-content:center;gap:8px;padding:2px 0}.set-bubble{width:20px;height:20px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.set-bubble.is-active{background:#c02686;color:#fff}.name-card{border:1px solid #e879c4;background:#fff;padding:8px;display:grid;grid-template-columns:1fr;gap:6px;font-size:12px}.line{border-bottom:1px solid #444;height:16px}.omr-note{margin-top:8px;font-size:12px;border-top:1px dashed #999;padding-top:6px}.omr-page.is-dense-1 .omr-question-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 8px}.omr-page.is-dense-1 .omr-q-row{padding:2px 3px}.omr-page.is-dense-2 .omr-question-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:3px 6px}.omr-page.is-dense-2 .bubble-group span{width:16px;height:16px;font-size:9px}.omr-page.is-dense-2 .qno{min-width:18px;font-size:11px}.omr-page.is-dense-3 .omr-layout{grid-template-columns:1.7fr 1fr;gap:8px}.omr-page.is-dense-3 .omr-question-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:3px 5px}.omr-page.is-dense-3 .omr-q-row{gap:4px;padding:2px 2px}.omr-page.is-dense-3 .bubble-group{gap:3px}.omr-page.is-dense-3 .bubble-group span{width:14px;height:14px;font-size:8px}.omr-page.is-dense-3 .qno{min-width:14px;font-size:10px}.omr-page.is-dense-3 .board-head h1{font-size:20px}.omr-page.is-dense-3 .board-head h2{font-size:14px}@media print{body{padding:0}}</style></head><body>${pages.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)} OMR</title><style>@page{size:A4 portrait;margin:6mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;color:#111;padding:8px;background:#fff}.omr-page{width:198mm;height:285mm;max-width:198mm;margin:0 auto 8px auto;border:2px solid #111;padding:8px 10px;box-sizing:border-box;page-break-after:always;page-break-inside:avoid;break-inside:avoid;overflow:hidden}.omr-page:last-child{page-break-after:auto}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}.board-head h1{margin:0;font-size:24px}.board-head h2{margin:2px 0 6px 0;font-size:18px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0}.omr-warning{text-align:center;border:2px solid #111;background:#fff0fb;color:#861657;font-weight:700;font-size:13px;padding:6px;margin:10px 0}.omr-layout{display:grid;grid-template-columns:1.5fr 1fr;gap:12px}.omr-left{border:1px solid #e879c4;padding:8px;background:#fff9fd}.omr-table-head{display:grid;grid-template-columns:88px 1fr;font-weight:700;font-size:13px;background:#ffd6f1;border:1px solid #e879c4;padding:4px 6px;margin-bottom:6px}.omr-question-grid{display:grid;grid-template-columns:1fr;gap:6px}.omr-line{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 8px}.omr-q-row{display:flex;align-items:center;gap:8px;border:1px solid #f3b0dc;background:#fff;padding:3px 4px}.omr-q-row--empty{visibility:hidden}.qno{min-width:22px;font-weight:700}.bubble-group{display:flex;gap:5px}.bubble-group span{width:19px;height:19px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.omr-right{display:flex;flex-direction:column;gap:8px}.id-grid{display:grid;grid-template-columns:1fr;gap:8px}.digit-card{border:1px solid #e879c4;background:#fff9fd;padding:6px}.digit-card__title{font-weight:700;font-size:12px;text-align:center;margin-bottom:2px}.digit-card__hint{text-align:center;font-size:10px;color:#7a1e4f;margin-bottom:4px}.digit-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:4px}.digit-col{display:flex;flex-direction:column;align-items:center;gap:2px}.digit-col__write{width:17px;height:17px;border:1px solid #7a1e4f;background:#fff}.digit-bubble{width:17px;height:17px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#9d174d}.set-code-box .set-bubbles{display:flex;justify-content:center;gap:8px;padding:2px 0}.set-bubble{width:20px;height:20px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.set-bubble.is-active{background:#c02686;color:#fff}.name-card{border:1px solid #e879c4;background:#fff;padding:8px;display:grid;grid-template-columns:1fr;gap:6px;font-size:12px}.line{border-bottom:1px solid #444;height:16px}.omr-note{margin-top:8px;font-size:12px;border-top:1px dashed #999;padding-top:6px}.omr-page.is-dense-1 .omr-line{gap:4px 6px}.omr-page.is-dense-1 .omr-q-row{padding:2px 3px}.omr-page.is-dense-2 .bubble-group span{width:16px;height:16px;font-size:9px}.omr-page.is-dense-2 .qno{min-width:18px;font-size:11px}.omr-page.is-dense-3 .omr-layout{grid-template-columns:1.7fr 1fr;gap:8px}.omr-page.is-dense-3 .omr-line{gap:3px 5px}.omr-page.is-dense-3 .omr-q-row{gap:4px;padding:2px 2px}.omr-page.is-dense-3 .bubble-group{gap:3px}.omr-page.is-dense-3 .bubble-group span{width:14px;height:14px;font-size:8px}.omr-page.is-dense-3 .qno{min-width:14px;font-size:10px}.omr-page.is-dense-3 .board-head h1{font-size:20px}.omr-page.is-dense-3 .board-head h2{font-size:14px}@media print{body{padding:0}}</style></head><body>${pages.join('')}</body></html>`;
   }
 
   function printOmrSheet(examId) {
