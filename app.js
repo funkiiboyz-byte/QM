@@ -1698,6 +1698,119 @@
     target.innerHTML = Object.entries(grouped).map(([className, items]) => `<section class="preview-surface preview-surface--small"><h4>Class: ${escapeHtml(className)}</h4>${items.map((student) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(student.name)}</h4><p>Roll: ${escapeHtml(student.rollNumber || student.studentId || '')} · ${escapeHtml(student.institute || '')} · ${escapeHtml(student.phone || student.email || '')}</p></div><span class="status-pill ${student.active ? 'is-live' : ''}">${student.active ? 'Active' : 'Inactive'}</span></div><div class="entity-actions"><a class="toolbar-button" href="student-profile.html?studentId=${student.id}">View Profile</a><button class="toolbar-button" data-toggle-student="${student.id}">${student.active ? 'Deactivate' : 'Activate'}</button><button class="toolbar-button toolbar-button--danger" data-delete-student="${student.id}">Delete</button></div></article>`).join('')}</section>`).join('');
     target.querySelectorAll('[data-toggle-student]').forEach((button) => button.addEventListener('click', () => { const student = state.students.find((item) => item.id === button.dataset.toggleStudent); student.active = !student.active; saveState(); renderStudents(); }));
     target.querySelectorAll('[data-delete-student]').forEach((button) => button.addEventListener('click', () => { state.students = state.students.filter((item) => item.id !== button.dataset.deleteStudent); saveState(); renderStudents(); }));
+    target.querySelectorAll('[data-view-student]').forEach((card) => card.addEventListener('click', (event) => {
+      if (event.target.closest('button')) return;
+      renderStudentProfile(card.dataset.viewStudent);
+    }));
+    if (profile && !profile.innerHTML.trim()) profile.innerHTML = '<p class="muted-copy">Select a student to see profile and exam results.</p>';
+  }
+
+  function renderStudentProfile(studentId) {
+    const target = document.getElementById('studentProfile');
+    if (!target) return;
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return target.innerHTML = '<p class="muted-copy">Student not found.</p>';
+    const attempts = state.attempts.filter((attempt) => attempt.studentId === studentId);
+    const rows = attempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
+    }).join('');
+    target.innerHTML = `<h4>${escapeHtml(student.name)} · Profile</h4><p>Roll: ${escapeHtml(student.rollNumber || '')} · Class: ${escapeHtml(student.className || '')} · Phone: ${escapeHtml(student.phone || '')}</p><div class="table-wrap"><table><thead><tr><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No exam result yet.</td></tr>'}</tbody></table></div>`;
+  }
+
+  function buildStudentProfileMarkup(studentId) {
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return '<p class="muted-copy">Student not found.</p>';
+    const attempts = state.attempts.filter((attempt) => attempt.studentId === studentId);
+    const rows = attempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
+    }).join('');
+    return `<div class="result-card"><h2>MegaPrep · Student Result Card</h2><p><strong>Name:</strong> ${escapeHtml(student.name)} | <strong>Roll:</strong> ${escapeHtml(student.rollNumber || '')} | <strong>Class:</strong> ${escapeHtml(student.className || '')}</p><p><strong>Institute:</strong> ${escapeHtml(student.institute || '')} | <strong>Phone:</strong> ${escapeHtml(student.phone || '')}</p><div class="table-wrap"><table><thead><tr><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No exam result yet.</td></tr>'}</tbody></table></div></div>`;
+  }
+
+  function initStudentProfilePage() {
+    const target = document.getElementById('studentProfilePage');
+    const printBtn = document.getElementById('printStudentMarksheetBtn');
+    if (!target || !printBtn) return;
+    const params = new URLSearchParams(window.location.search);
+    const studentId = params.get('studentId') || '';
+    target.innerHTML = buildStudentProfileMarkup(studentId);
+    printBtn.addEventListener('click', () => {
+      const win = window.open('', '_blank', 'width=1000,height=800');
+      if (!win) return showToast('Popup blocked by browser.', 'error');
+      win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Marksheet</title><link rel="stylesheet" href="styles.css"></head><body>${buildStudentProfileMarkup(studentId)}</body></html>`);
+      win.document.close();
+      win.print();
+    });
+  }
+
+  async function exportStudentsSheet(className = '') {
+    const XLSX = await ensureXlsxLib();
+    const rows = state.students
+      .filter((student) => !className || (student.className || student.course || '') === className)
+      .map((student) => ({
+        roll_number: student.rollNumber || '',
+        student_name: student.name || '',
+        class: student.className || student.course || '',
+        institute: student.institute || '',
+        phone_number: student.phone || '',
+      }));
+    if (!rows.length) return showToast('No student found for export.', 'error');
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, className || 'All Students');
+    XLSX.writeFile(book, className ? `${className.replace(/\s+/g, '-').toLowerCase()}-students.xlsx` : 'all-students.xlsx');
+  }
+
+  function buildStudentProfileMarkup(studentId) {
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return '<p class="muted-copy">Student not found.</p>';
+    const attempts = state.attempts.filter((attempt) => attempt.studentId === studentId);
+    const rows = attempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
+    }).join('');
+    const totalExams = attempts.length;
+    const avgPercent = attempts.length ? (attempts.reduce((sum, item) => sum + ((item.total ? item.score / item.total : 0) * 100), 0) / attempts.length).toFixed(2) : '0.00';
+    return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>MegaPrep Result Card</h1><p>Professional Academic Transcript</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><div class="result-card__stats"><article><strong>${totalExams}</strong><span>Total Exams</span></article><article><strong>${avgPercent}%</strong><span>Average %</span></article></div><div class="table-wrap"><table><thead><tr><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No exam result yet.</td></tr>'}</tbody></table></div></section>`;
+  }
+
+  function initStudentProfilePage() {
+    const target = document.getElementById('studentProfilePage');
+    const printBtn = document.getElementById('printStudentMarksheetBtn');
+    if (!target || !printBtn) return;
+    const params = new URLSearchParams(window.location.search);
+    const studentId = params.get('studentId') || '';
+    target.innerHTML = buildStudentProfileMarkup(studentId);
+    printBtn.addEventListener('click', () => {
+      const win = window.open('', '_blank', 'width=1000,height=800');
+      if (!win) return showToast('Popup blocked by browser.', 'error');
+      win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Marksheet</title><link rel="stylesheet" href="styles.css"></head><body>${buildStudentProfileMarkup(studentId)}</body></html>`);
+      win.document.close();
+      win.print();
+    });
+  }
+
+  async function exportStudentsSheet(className = '') {
+    const XLSX = await ensureXlsxLib();
+    const rows = state.students
+      .filter((student) => !className || (student.className || student.course || '') === className)
+      .map((student) => ({
+        roll_number: student.rollNumber || '',
+        student_name: student.name || '',
+        class: student.className || student.course || '',
+        institute: student.institute || '',
+        phone_number: student.phone || '',
+      }));
+    if (!rows.length) return showToast('No student found for export.', 'error');
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, className || 'All Students');
+    XLSX.writeFile(book, className ? `${className.replace(/\s+/g, '-').toLowerCase()}-students.xlsx` : 'all-students.xlsx');
   }
 
   function buildStudentProfileMarkup(studentId) {
@@ -1809,6 +1922,67 @@
       if (!next || next !== confirm) return showToast('Password confirmation failed.', 'error');
       state.credentials.adminPassword = next; saveState(); event.target.reset(); showToast('Password updated.');
     });
+    /**
+ * A utility to strip LaTeX commands and convert to plain text.
+ * Note: This handles common formatting and math symbols.
+ */
+const latexToText = (latex) => {
+  let text = latex;
+
+  // 1. Handle escaped characters (e.g., \{ -> {, \& -> &)
+  text = text.replace(/\\([&%$#_{}])/g, '$1');
+
+  // 2. Remove comments
+  text = text.replace(/%.*$/gm, '');
+
+  // 3. Remove common environments (begin/end blocks)
+  text = text.replace(/\\begin\{.*?\}/g, '');
+  text = text.replace(/\\end\{.*?\}/g, '');
+
+  // 4. Convert specific math symbols/commands to readable equivalents
+  const replacements = [
+    { regex: /\\alpha/g, subst: 'α' },
+    { regex: /\\beta/g, subst: 'β' },
+    { regex: /\\gamma/g, subst: 'γ' },
+    { regex: /\\infty/g, subst: '∞' },
+    { regex: /\\pm/g, subst: '±' },
+    { regex: /\\neq/g, subst: '≠' },
+    { regex: /\\approx/g, subst: '≈' },
+    { regex: /\\times/g, subst: '×' },
+    { regex: /\\div/g, subst: '÷' },
+    { regex: /\\rightarrow/g, subst: '→' }
+  ];
+
+  replacements.forEach(item => {
+    text = text.replace(item.regex, item.subst);
+  });
+
+  // 5. Remove formatting commands but keep the content: \textbf{Hello} -> Hello
+  // This uses a non-greedy match for the content inside braces
+  text = text.replace(/\\[a-zA-Z]+\{(.*?)\}/g, '$1');
+
+  // 6. Handle subscripts (_) and superscripts (^)
+  text = text.replace(/\^\{(.*?)\}/g, '^($1)');
+  text = text.replace(/_\{(.*?)\}/g, '_($1)');
+
+  // 7. Strip remaining backslashes and lone commands
+  text = text.replace(/\\[a-zA-Z]+/g, '');
+
+  // 8. Clean up whitespace
+  return text.trim().replace(/\s\s+/g, ' ');
+};
+
+// --- Example Usage ---
+const sampleLatex = `
+\\section{Introduction}
+The formula for the area of a circle is $A = \\pi r^2$. 
+\\textbf{Note:} If the radius is \\infty, the area is also \\infty.
+`;
+
+console.log("--- Original LaTeX ---");
+console.log(sampleLatex);
+console.log("\n--- Plain Text Output ---");
+console.log(latexToText(sampleLatex));
   }
 
   function parseCommaList(value) { return value.split(',').map((item) => item.trim()).filter(Boolean); }
