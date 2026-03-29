@@ -1639,9 +1639,11 @@ body.theme-dark .summary-card {
 
 .exam-actions-row {
   justify-content: flex-start;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  flex-wrap: wrap;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
+  padding-bottom: 2px;
 }
 
 .assignment-box {
