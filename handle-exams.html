@@ -89,6 +89,14 @@
 </label>
 </div>
 <div class="field-row">
+<label>Header Theme<select id="printHeaderTheme">
+<option value="classic">Classic</option>
+<option value="modern">Modern</option>
+<option value="minimal">Minimal</option>
+</select>
+</label>
+</div>
+<div class="field-row">
 <label>Question Number Prefix<input id="printNumberPrefix" type="text" placeholder="(optional)" />
 </label>
 <label>Columns<select id="printColumns">
@@ -126,8 +134,14 @@
 <input id="printAnswerSheet" type="checkbox" />
 <span>Attach answer sheet for all sets</span>
 </label>
+<label class="checkbox-row checkbox-card">
+<input id="printCompactMode" type="checkbox" />
+<span>Compact print mode (fit more MCQ per page)</span>
+</label>
 </form>
 <div id="printPreviewMeta" class="preview-surface preview-surface--small">
+</div>
+<div id="printFormatActions" class="entity-actions exam-actions-row">
 </div>
 </div>
 </div>
