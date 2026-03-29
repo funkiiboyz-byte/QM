@@ -2,6 +2,7 @@
   const STORAGE_KEY = 'megaprep-cms-state-v2';
   const SESSION_KEY = 'megaprep-session-v1';
   const OPENAI_KEY_STORAGE = 'megaprep-openai-key-v1';
+  const OPENAI_MODEL_STORAGE = 'megaprep-openai-model-v1';
   const CURRICULUM = window.MEGAPREP_CURRICULUM || {};
   const defaultState = {
     exams: [],
@@ -323,9 +324,14 @@
     document.getElementById('cqImage').addEventListener('change', async (e) => { cqImageData = await readFileAsDataUrl(e.target.files?.[0]); updateQuestionPreview(); });
     ['mcqQuestion', 'mcqExplanation', 'cqStimulus'].forEach((id) => document.getElementById(id).addEventListener('input', updateQuestionPreview));
     const keyInput = document.getElementById('openaiApiKey');
+    const modelInput = document.getElementById('openaiModel');
     if (keyInput) {
       keyInput.value = localStorage.getItem(OPENAI_KEY_STORAGE) || '';
       keyInput.addEventListener('change', () => localStorage.setItem(OPENAI_KEY_STORAGE, keyInput.value.trim()));
+    }
+    if (modelInput) {
+      modelInput.value = localStorage.getItem(OPENAI_MODEL_STORAGE) || modelInput.value || 'gpt-4.1-mini';
+      modelInput.addEventListener('change', () => localStorage.setItem(OPENAI_MODEL_STORAGE, modelInput.value.trim() || 'gpt-4.1-mini'));
     }
     resetOptions();
     resetSubQuestions();
@@ -403,31 +409,17 @@
   async function generateWithChatGptApi() {
     const promptArea = document.getElementById('jsonPromptText');
     const keyInput = document.getElementById('openaiApiKey');
+    const modelInput = document.getElementById('openaiModel');
     if (!promptArea || !keyInput) return;
     if (!promptArea.value.trim()) generateCurriculumPrompt();
     const prompt = promptArea.value.trim();
     const apiKey = keyInput.value.trim();
+    const selectedModel = (modelInput?.value || localStorage.getItem(OPENAI_MODEL_STORAGE) || 'gpt-4.1-mini').trim();
     if (!apiKey) return showToast('Add OpenAI API key first.', 'error');
     localStorage.setItem(OPENAI_KEY_STORAGE, apiKey);
+    localStorage.setItem(OPENAI_MODEL_STORAGE, selectedModel);
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          temperature: 0.2,
-          messages: [
-            { role: 'system', content: 'Return only valid JSON. No markdown.' },
-            { role: 'user', content: prompt },
-          ],
-        }),
-      });
-      if (!response.ok) throw new Error(`OpenAI request failed (${response.status}).`);
-      const data = await response.json();
-      const content = data?.choices?.[0]?.message?.content?.trim();
+      const content = await requestOpenAiJson({ apiKey, prompt, model: selectedModel });
       if (!content) throw new Error('Empty response from OpenAI.');
       document.getElementById('jsonImportText').value = content;
       document.querySelector('[data-mode="json"]')?.click();
@@ -436,6 +428,69 @@
     } catch (error) {
       showToast(error?.message || 'AI generation failed.', 'error');
     }
+  }
+
+  async function requestOpenAiJson({ apiKey, prompt, model }) {
+    const tryResponsesApi = async () => {
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          input: [
+            { role: 'system', content: [{ type: 'input_text', text: 'Return only valid JSON. No markdown.' }] },
+            { role: 'user', content: [{ type: 'input_text', text: prompt }] },
+          ],
+          text: { format: { type: 'json_object' } },
+        }),
+      });
+      if (!response.ok) throw await createOpenAiHttpError(response);
+      const data = await response.json();
+      const textFromOutput = Array.isArray(data?.output)
+        ? data.output.flatMap((item) => item?.content || []).find((entry) => entry?.type === 'output_text')?.text
+        : '';
+      return data?.output_text || textFromOutput || '';
+    };
+
+    try {
+      return await tryResponsesApi();
+    } catch (error) {
+      const fallbackSafe = /404|unknown endpoint|not found/i.test(error?.message || '');
+      if (!fallbackSafe) throw error;
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: 'Return only valid JSON. No markdown.' },
+            { role: 'user', content: prompt },
+          ],
+        }),
+      });
+      if (!response.ok) throw await createOpenAiHttpError(response);
+      const data = await response.json();
+      return data?.choices?.[0]?.message?.content?.trim() || '';
+    }
+  }
+
+  async function createOpenAiHttpError(response) {
+    let details = '';
+    try {
+      const payload = await response.json();
+      details = payload?.error?.message || '';
+    } catch {
+      details = await response.text();
+    }
+    return new Error(details ? `OpenAI error ${response.status}: ${details}` : `OpenAI request failed (${response.status}).`);
   }
 
   function saveMCQ(event) {
@@ -977,7 +1032,7 @@
         if (filters.topic && question.topic !== filters.topic) return false;
         return true;
       });
-      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<label class="assignment-item"><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label>`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div><div class="entity-actions"><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-publish-exam="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-download-exam="${exam.id}">Download</button><button class="toolbar-button" data-print-exam="${exam.id}">Print</button><button class="toolbar-button toolbar-button--danger" data-delete-exam="${exam.id}">Delete</button></div></article>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<label class="assignment-item"><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label>`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div><div class="entity-actions"><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-publish-exam="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-download-exam="${exam.id}">Download</button><button class="toolbar-button" data-print-exam="${exam.id}">Print</button><button class="toolbar-button" data-print-omr="${exam.id}">Print OMR</button><button class="toolbar-button toolbar-button--danger" data-delete-exam="${exam.id}">Delete</button></div></article>`;
     }).join('');
     target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => {
       const exam = findExam(button.dataset.publishExam);
@@ -1011,6 +1066,7 @@
     }));
     target.querySelectorAll('[data-download-exam]').forEach((button) => button.addEventListener('click', () => downloadExamPaper(button.dataset.downloadExam)));
     target.querySelectorAll('[data-print-exam]').forEach((button) => button.addEventListener('click', () => printExamPaper(button.dataset.printExam)));
+    target.querySelectorAll('[data-print-omr]').forEach((button) => button.addEventListener('click', () => printOmrSheet(button.dataset.printOmr)));
     target.querySelectorAll('input[data-exam-id]').forEach((checkbox) => checkbox.addEventListener('change', () => {
       const exam = findExam(checkbox.dataset.examId);
       if (!exam) return showToast('Exam not found.', 'error');
@@ -1149,6 +1205,36 @@
     const win = window.open('', '_blank', 'width=980,height=720');
     if (!win) return showToast('Popup blocked by browser.', 'error');
     win.document.write(buildExamPaperHtml(examId));
+    win.document.close();
+    win.focus();
+    win.print();
+  }
+
+  function buildOmrSheetHtml(examId) {
+    const exam = findExam(examId);
+    if (!exam) return '<!DOCTYPE html><html><head><meta charset="utf-8" /><title>OMR Not Found</title></head><body><p>Exam not found.</p></body></html>';
+    const snapshot = exam.published && exam.publishedSnapshot ? exam.publishedSnapshot : null;
+    const config = snapshot?.config ? mergePrintConfig(snapshot.config) : state.settings.printConfig;
+    const questions = snapshot?.questions
+      ? snapshot.questions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: (question.subQuestions || []).map((item) => ({ ...item })) }))
+      : exam.questionIds.map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
+    const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
+    const pages = [];
+    for (let setIndex = 0; setIndex < safeSetCount; setIndex += 1) {
+      const { answerKey } = buildQuestionSet(questions, config);
+      const setLabel = config.setLabelStyle === 'numeric' ? `${setIndex + 1}` : String.fromCharCode(65 + setIndex);
+      const questionRows = answerKey.map((_, idx) => `<div class="omr-q-row"><span class="qno">${idx + 1}</span><div class="bubble-group"><span>A</span><span>B</span><span>C</span><span>D</span></div></div>`).join('');
+      const makeDigitRow = (name) => `<div class="digit-row"><span class="field-label">${name}</span>${Array.from({ length: 10 }, (_, num) => `<span class="digit-bubble">${num}</span>`).join('')}</div>`;
+      pages.push(`<section class="omr-page"><header class="omr-header"><h1>Board Exam OMR Sheet</h1><p>${formatMathForDisplay(config.headerTitle)} · ${formatMathForDisplay(exam.title)}</p><p><strong>Set ${escapeHtml(setLabel)}</strong> · ${escapeHtml(exam.subject)} · ${escapeHtml(exam.examDate)}</p></header><div class="identity-box"><div class="identity-title">Student Information</div>${makeDigitRow('Roll')}${makeDigitRow('Registration')}<div class="name-line"><span>Name:</span><span class="line"></span><span>Class/Section:</span><span class="line"></span></div></div><div class="set-choice"><strong>Set Selection:</strong> <span class="set-bubble ${setLabel === 'A' || setLabel === '1' ? 'is-active' : ''}">A</span><span class="set-bubble ${setLabel === 'B' || setLabel === '2' ? 'is-active' : ''}">B</span><span class="set-bubble ${setLabel === 'C' || setLabel === '3' ? 'is-active' : ''}">C</span><span class="set-bubble ${setLabel === 'D' || setLabel === '4' ? 'is-active' : ''}">D</span></div><div class="omr-question-grid">${questionRows || '<p>No assigned question found.</p>'}</div></section>`);
+    }
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)} OMR</title><style>@page{margin:8mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;color:#111;padding:8px}.omr-page{max-width:900px;margin:0 auto 12px auto;border:2px solid #111;padding:10px 12px;page-break-after:always}.omr-page:last-child{page-break-after:auto}.omr-header{text-align:center;border-bottom:1px solid #111;padding-bottom:8px}.omr-header h1{margin:0;font-size:22px;letter-spacing:.6px}.omr-header p{margin:4px 0;font-size:12px}.identity-box{margin-top:10px;border:1px solid #111;padding:8px}.identity-title{font-weight:700;margin-bottom:6px}.digit-row{display:flex;align-items:center;gap:4px;margin:5px 0;flex-wrap:wrap}.field-label{min-width:92px;font-weight:700}.digit-bubble{width:18px;height:18px;border:1px solid #111;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px}.name-line{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:8px;align-items:center;margin-top:8px;font-size:12px}.line{border-bottom:1px solid #111;height:12px}.set-choice{margin-top:10px;font-size:13px;display:flex;align-items:center;gap:6px}.set-bubble{width:20px;height:20px;border:1px solid #111;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.set-bubble.is-active{background:#111;color:#fff}.omr-question-grid{margin-top:10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 16px}.omr-q-row{display:flex;align-items:center;gap:8px}.qno{min-width:26px;font-weight:700}.bubble-group{display:flex;gap:6px}.bubble-group span{width:20px;height:20px;border:1px solid #111;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}@media print{body{padding:0}}</style></head><body>${pages.join('')}</body></html>`;
+  }
+
+  function printOmrSheet(examId) {
+    if (!findExam(examId)) return showToast('Exam not found.', 'error');
+    const win = window.open('', '_blank', 'width=980,height=720');
+    if (!win) return showToast('Popup blocked by browser.', 'error');
+    win.document.write(buildOmrSheetHtml(examId));
     win.document.close();
     win.focus();
     win.print();
