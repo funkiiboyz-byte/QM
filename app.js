@@ -1220,16 +1220,34 @@
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(imageBitmap, 0, 0, canvas.width, canvas.height);
-    const getDarkness = (cx, cy, radius = 10) => {
-      const sample = ctx.getImageData(Math.max(0, Math.floor(cx - radius)), Math.max(0, Math.floor(cy - radius)), radius * 2, radius * 2).data;
-      let total = 0;
-      let count = 0;
-      for (let i = 0; i < sample.length; i += 4) {
-        const gray = (sample[i] + sample[i + 1] + sample[i + 2]) / 3;
-        total += (255 - gray);
-        count += 1;
+    const full = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const bubbleFillScore = (cx, cy, innerRadius = 6, outerRadius = 11) => {
+      let innerDark = 0;
+      let innerCount = 0;
+      let ringDark = 0;
+      let ringCount = 0;
+      for (let y = -outerRadius; y <= outerRadius; y += 1) {
+        for (let x = -outerRadius; x <= outerRadius; x += 1) {
+          const px = Math.floor(cx + x);
+          const py = Math.floor(cy + y);
+          if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) continue;
+          const dist2 = x * x + y * y;
+          if (dist2 > outerRadius * outerRadius) continue;
+          const idx = (py * canvas.width + px) * 4;
+          const gray = (full[idx] + full[idx + 1] + full[idx + 2]) / 3;
+          const dark = 255 - gray;
+          if (dist2 <= innerRadius * innerRadius) {
+            innerDark += dark;
+            innerCount += 1;
+          } else {
+            ringDark += dark;
+            ringCount += 1;
+          }
+        }
       }
-      return count ? total / count : 0;
+      const innerAvg = innerCount ? innerDark / innerCount : 0;
+      const ringAvg = ringCount ? ringDark / ringCount : 0;
+      return innerAvg - (ringAvg * 0.65);
     };
     const detectColumnDigits = (startX, startY, columns, rowGap, colGap) => {
       const digits = [];
@@ -1239,13 +1257,13 @@
         let bestScore = -1;
         for (let digit = 0; digit < 10; digit += 1) {
           const y = startY + digit * rowGap;
-          const score = getDarkness(x, y, 8);
+          const score = bubbleFillScore(x, y, 5, 9);
           if (score > bestScore) {
             bestScore = score;
             best = digit;
           }
         }
-        digits.push(bestScore > 25 ? String(best) : '');
+        digits.push(bestScore > 16 ? String(best) : '');
       }
       return digits.join('').replace(/\s+/g, '');
     };
@@ -1267,13 +1285,13 @@
         let bestLabel = '';
         let bestScore = -1;
         labels.forEach((label, optionIndex) => {
-          const score = getDarkness(baseX + optionIndex * optionGap, baseY, 7);
+          const score = bubbleFillScore(baseX + optionIndex * optionGap, baseY, 5, 9);
           if (score > bestScore) {
             bestScore = score;
             bestLabel = label;
           }
         });
-        answers.push(bestScore > 20 ? bestLabel : '');
+        answers.push(bestScore > 14 ? bestLabel : '');
       }
     }
     return { roll, answers };
@@ -1566,7 +1584,7 @@
       }).join('')}</div>`;
       pages.push(`<section class="omr-page ${densityClass}"><header class="board-head board-head--${escapeAttr(config.headerTheme || 'classic')}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span><span><strong>Exam Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p></header><div class="omr-warning">উত্তরপত্রে নির্দিষ্ট স্থান ব্যতীত অন্য কোথাও লেখা যাবে না</div><div class="omr-layout"><div class="omr-left"><div class="omr-table-head"><span>প্রশ্ন নম্বর</span><span>উত্তর</span></div><div class="omr-question-grid">${questionRows || '<p>No assigned question found.</p>'}</div></div><div class="omr-right"><div class="id-grid">${buildDigitColumns(6, 'রোল নম্বর')}${buildDigitColumns(8, 'রেজিস্ট্রেশন নম্বর')}</div><div class="set-code-box"><div class="digit-card"><div class="digit-card__title">সেট কোড</div><div class="set-bubbles"><span class="set-bubble ${setLabel === 'A' || setLabel === '1' ? 'is-active' : ''}">A</span><span class="set-bubble ${setLabel === 'B' || setLabel === '2' ? 'is-active' : ''}">B</span><span class="set-bubble ${setLabel === 'C' || setLabel === '3' ? 'is-active' : ''}">C</span><span class="set-bubble ${setLabel === 'D' || setLabel === '4' ? 'is-active' : ''}">D</span></div></div></div><div class="name-card"><div><strong>শিক্ষার্থীর নাম</strong></div><div class="line"></div><div><strong>ফোন নম্বর</strong></div><div class="line"></div><div><strong>শিক্ষার্থীর স্বাক্ষর</strong></div><div class="line"></div></div></div></div><div class="omr-note"><strong>নির্দেশাবলী:</strong> কালো বল পয়েন্ট কলম দিয়ে বৃত্ত সম্পূর্ণ ভরাট করুন।</div></section>`);
     }
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)} OMR</title><style>@page{size:A4 portrait;margin:6mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;color:#111;padding:8px;background:#fff}.omr-page{width:198mm;height:285mm;max-width:198mm;margin:0 auto 8px auto;border:2px solid #111;padding:8px 10px;box-sizing:border-box;page-break-after:always;page-break-inside:avoid;break-inside:avoid;overflow:hidden}.omr-page:last-child{page-break-after:auto}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}.board-head h1{margin:0;font-size:24px}.board-head h2{margin:2px 0 6px 0;font-size:18px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0}.omr-warning{text-align:center;border:2px solid #111;background:#fff0fb;color:#861657;font-weight:700;font-size:13px;padding:6px;margin:10px 0}.omr-layout{display:grid;grid-template-columns:1.5fr 1fr;gap:12px}.omr-left{border:1px solid #e879c4;padding:8px;background:#fff9fd}.omr-table-head{display:grid;grid-template-columns:88px 1fr;font-weight:700;font-size:13px;background:#ffd6f1;border:1px solid #e879c4;padding:4px 6px;margin-bottom:6px}.omr-question-grid{display:block}.omr-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 8px}.omr-col{display:grid;gap:4px}.omr-q-row{display:flex;align-items:center;gap:8px;border:1px solid #f3b0dc;background:#fff;padding:2px 3px}.qno{min-width:22px;font-weight:700}.bubble-group{display:flex;gap:5px}.bubble-group span{width:19px;height:19px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.omr-right{display:flex;flex-direction:column;gap:8px}.id-grid{display:grid;grid-template-columns:1fr;gap:8px}.digit-card{border:1px solid #e879c4;background:#fff9fd;padding:6px}.digit-card__title{font-weight:700;font-size:12px;text-align:center;margin-bottom:2px}.digit-card__hint{text-align:center;font-size:10px;color:#7a1e4f;margin-bottom:4px}.digit-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:4px}.digit-col{display:flex;flex-direction:column;align-items:center;gap:2px}.digit-col__write{width:17px;height:17px;border:1px solid #7a1e4f;background:#fff}.digit-bubble{width:17px;height:17px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#9d174d}.set-code-box .set-bubbles{display:flex;justify-content:center;gap:8px;padding:2px 0}.set-bubble{width:20px;height:20px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.set-bubble.is-active{background:#c02686;color:#fff}.name-card{border:1px solid #e879c4;background:#fff;padding:8px;display:grid;grid-template-columns:1fr;gap:6px;font-size:12px}.line{border-bottom:1px solid #444;height:16px}.omr-note{margin-top:8px;font-size:12px;border-top:1px dashed #999;padding-top:6px}.omr-page.is-dense-1 .omr-columns{gap:4px 6px}.omr-page.is-dense-2 .bubble-group span{width:14px;height:14px;font-size:8px}.omr-page.is-dense-2 .qno{min-width:16px;font-size:10px}.omr-page.is-dense-3 .omr-layout{grid-template-columns:1.7fr 1fr;gap:8px}.omr-page.is-dense-3 .omr-columns{gap:3px 5px}.omr-page.is-dense-3 .omr-q-row{gap:3px;padding:1px 2px}.omr-page.is-dense-3 .bubble-group{gap:2px}.omr-page.is-dense-3 .bubble-group span{width:12px;height:12px;font-size:7px}.omr-page.is-dense-3 .qno{min-width:12px;font-size:9px}.omr-page.is-dense-3 .board-head h1{font-size:18px}.omr-page.is-dense-3 .board-head h2{font-size:13px}@media print{body{padding:0}}</style></head><body>${pages.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)} OMR</title><style>@page{size:A4 portrait;margin:6mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;color:#111;padding:8px;background:#fff}.omr-page{width:198mm;height:285mm;max-width:198mm;margin:0 auto 8px auto;border:2px solid #111;padding:8px 10px;box-sizing:border-box;page-break-after:always;page-break-inside:avoid;break-inside:avoid;overflow:hidden}.omr-page:last-child{page-break-after:auto}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}.board-head h1{margin:0;font-size:24px}.board-head h2{margin:2px 0 6px 0;font-size:18px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0}.omr-warning{text-align:center;border:2px solid #111;background:#fff0fb;color:#861657;font-weight:700;font-size:13px;padding:6px;margin:10px 0}.omr-layout{display:grid;grid-template-columns:1.5fr 1fr;gap:12px}.omr-left{border:1px solid #e879c4;padding:8px;background:#fff9fd}.omr-table-head{display:grid;grid-template-columns:88px 1fr;font-weight:700;font-size:13px;background:#ffd6f1;border:1px solid #e879c4;padding:4px 6px;margin-bottom:6px}.omr-question-grid{display:block}.omr-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 8px}.omr-col{display:grid;gap:4px}.omr-q-row{display:flex;align-items:center;gap:8px;border:1px solid #f3b0dc;background:#fff;padding:2px 3px}.qno{min-width:22px;font-weight:700}.bubble-group{display:flex;gap:5px}.bubble-group span{width:14px;height:14px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:#9d174d}.omr-right{display:flex;flex-direction:column;gap:8px}.id-grid{display:grid;grid-template-columns:1fr;gap:8px}.digit-card{border:1px solid #e879c4;background:#fff9fd;padding:6px}.digit-card__title{font-weight:700;font-size:12px;text-align:center;margin-bottom:2px}.digit-card__hint{text-align:center;font-size:10px;color:#7a1e4f;margin-bottom:4px}.digit-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:4px}.digit-col{display:flex;flex-direction:column;align-items:center;gap:2px}.digit-col__write{width:17px;height:17px;border:1px solid #7a1e4f;background:#fff}.digit-bubble{width:17px;height:17px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#9d174d}.set-code-box .set-bubbles{display:flex;justify-content:center;gap:8px;padding:2px 0}.set-bubble{width:20px;height:20px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.set-bubble.is-active{background:#c02686;color:#fff}.name-card{border:1px solid #e879c4;background:#fff;padding:8px;display:grid;grid-template-columns:1fr;gap:6px;font-size:12px}.line{border-bottom:1px solid #444;height:16px}.omr-note{margin-top:8px;font-size:12px;border-top:1px dashed #999;padding-top:6px}.omr-page.is-dense-1 .omr-columns{gap:4px 6px}.omr-page.is-dense-2 .bubble-group span{width:14px;height:14px;font-size:8px}.omr-page.is-dense-2 .qno{min-width:16px;font-size:10px}.omr-page.is-dense-3 .omr-layout{grid-template-columns:1.7fr 1fr;gap:8px}.omr-page.is-dense-3 .omr-columns{gap:3px 5px}.omr-page.is-dense-3 .omr-q-row{gap:3px;padding:1px 2px}.omr-page.is-dense-3 .bubble-group{gap:2px}.omr-page.is-dense-3 .bubble-group span{width:12px;height:12px;font-size:7px}.omr-page.is-dense-3 .qno{min-width:12px;font-size:9px}.omr-page.is-dense-3 .board-head h1{font-size:18px}.omr-page.is-dense-3 .board-head h2{font-size:13px}@media print{body{padding:0}}</style></head><body>${pages.join('')}</body></html>`;
   }
 
   function printOmrSheet(examId) {
@@ -1711,6 +1729,54 @@
       return `<tr><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
     }).join('');
     return `<div class="result-card"><h2>MegaPrep · Student Result Card</h2><p><strong>Name:</strong> ${escapeHtml(student.name)} | <strong>Roll:</strong> ${escapeHtml(student.rollNumber || '')} | <strong>Class:</strong> ${escapeHtml(student.className || '')}</p><p><strong>Institute:</strong> ${escapeHtml(student.institute || '')} | <strong>Phone:</strong> ${escapeHtml(student.phone || '')}</p><div class="table-wrap"><table><thead><tr><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No exam result yet.</td></tr>'}</tbody></table></div></div>`;
+  }
+
+  function initStudentProfilePage() {
+    const target = document.getElementById('studentProfilePage');
+    const printBtn = document.getElementById('printStudentMarksheetBtn');
+    if (!target || !printBtn) return;
+    const params = new URLSearchParams(window.location.search);
+    const studentId = params.get('studentId') || '';
+    target.innerHTML = buildStudentProfileMarkup(studentId);
+    printBtn.addEventListener('click', () => {
+      const win = window.open('', '_blank', 'width=1000,height=800');
+      if (!win) return showToast('Popup blocked by browser.', 'error');
+      win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Marksheet</title><link rel="stylesheet" href="styles.css"></head><body>${buildStudentProfileMarkup(studentId)}</body></html>`);
+      win.document.close();
+      win.print();
+    });
+  }
+
+  async function exportStudentsSheet(className = '') {
+    const XLSX = await ensureXlsxLib();
+    const rows = state.students
+      .filter((student) => !className || (student.className || student.course || '') === className)
+      .map((student) => ({
+        roll_number: student.rollNumber || '',
+        student_name: student.name || '',
+        class: student.className || student.course || '',
+        institute: student.institute || '',
+        phone_number: student.phone || '',
+      }));
+    if (!rows.length) return showToast('No student found for export.', 'error');
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, className || 'All Students');
+    XLSX.writeFile(book, className ? `${className.replace(/\s+/g, '-').toLowerCase()}-students.xlsx` : 'all-students.xlsx');
+  }
+
+  function buildStudentProfileMarkup(studentId) {
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return '<p class="muted-copy">Student not found.</p>';
+    const attempts = state.attempts.filter((attempt) => attempt.studentId === studentId);
+    const rows = attempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
+    }).join('');
+    const totalExams = attempts.length;
+    const avgPercent = attempts.length ? (attempts.reduce((sum, item) => sum + ((item.total ? item.score / item.total : 0) * 100), 0) / attempts.length).toFixed(2) : '0.00';
+    return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>MegaPrep Result Card</h1><p>Professional Academic Transcript</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><div class="result-card__stats"><article><strong>${totalExams}</strong><span>Total Exams</span></article><article><strong>${avgPercent}%</strong><span>Average %</span></article></div><div class="table-wrap"><table><thead><tr><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No exam result yet.</td></tr>'}</tbody></table></div></section>`;
   }
 
   function initStudentProfilePage() {
