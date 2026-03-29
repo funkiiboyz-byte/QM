@@ -1813,6 +1813,57 @@
     XLSX.writeFile(book, className ? `${className.replace(/\s+/g, '-').toLowerCase()}-students.xlsx` : 'all-students.xlsx');
   }
 
+  function buildStudentProfileMarkup(studentId) {
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return '<p class="muted-copy">Student not found.</p>';
+    const attempts = state.attempts.filter((attempt) => attempt.studentId === studentId);
+    const rows = attempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const highest = state.attempts
+        .filter((item) => item.examId === attempt.examId)
+        .reduce((max, item) => Math.max(max, Number(item.score || 0)), 0);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td>${new Date(attempt.createdAt).toLocaleDateString()}</td><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.total}</td><td>${attempt.score}</td><td>${highest}</td><td>${pct}%</td></tr>`;
+    }).join('');
+    const totalExams = attempts.length;
+    const avgPercent = attempts.length ? (attempts.reduce((sum, item) => sum + ((item.total ? item.score / item.total : 0) * 100), 0) / attempts.length).toFixed(2) : '0.00';
+    return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>MegaPrep Result Card</h1><p>Professional Academic Transcript</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><div class="result-card__stats"><article><strong>${totalExams}</strong><span>Total Exams</span></article><article><strong>${avgPercent}%</strong><span>Average %</span></article></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Exam Name</th><th>Full Marks</th><th>Obtained Mark</th><th>Highest Mark</th><th>Percentage</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No exam result yet.</td></tr>'}</tbody></table></div></section>`;
+  }
+
+  function initStudentProfilePage() {
+    const target = document.getElementById('studentProfilePage');
+    const printBtn = document.getElementById('printStudentMarksheetBtn');
+    if (!target || !printBtn) return;
+    const params = new URLSearchParams(window.location.search);
+    const studentId = params.get('studentId') || '';
+    target.innerHTML = buildStudentProfileMarkup(studentId);
+    printBtn.addEventListener('click', () => {
+      const win = window.open('', '_blank', 'width=1000,height=800');
+      if (!win) return showToast('Popup blocked by browser.', 'error');
+      win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Marksheet</title><link rel="stylesheet" href="styles.css"></head><body>${buildStudentProfileMarkup(studentId)}</body></html>`);
+      win.document.close();
+      win.print();
+    });
+  }
+
+  async function exportStudentsSheet(className = '') {
+    const XLSX = await ensureXlsxLib();
+    const rows = state.students
+      .filter((student) => !className || (student.className || student.course || '') === className)
+      .map((student) => ({
+        roll_number: student.rollNumber || '',
+        student_name: student.name || '',
+        class: student.className || student.course || '',
+        institute: student.institute || '',
+        phone_number: student.phone || '',
+      }));
+    if (!rows.length) return showToast('No student found for export.', 'error');
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, className || 'All Students');
+    XLSX.writeFile(book, className ? `${className.replace(/\s+/g, '-').toLowerCase()}-students.xlsx` : 'all-students.xlsx');
+  }
+
   function initAnalyticsPage() {
     document.getElementById('attemptForm').addEventListener('submit', saveAttempt);
     populateAttemptSelectors();

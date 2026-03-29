@@ -1727,6 +1727,10 @@ body.theme-dark .summary-card {
 }
 
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
   .marksheet-onepage {
     width: 190mm;
     min-height: 265mm;
