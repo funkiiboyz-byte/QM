@@ -58,6 +58,7 @@
       case 'question-bank': initQuestionBankPage(); break;
       case 'handle-exams': initHandleExamsPage(); break;
       case 'students': initStudentsPage(); break;
+      case 'result-analyse': initResultAnalysePage(); break;
       case 'analytics': initAnalyticsPage(); break;
       case 'devices': initDevicesPage(); break;
       case 'passwords': initPasswordsPage(); break;
@@ -1073,7 +1074,7 @@
       holder.innerHTML = '<p class="muted-copy">Select an exam to use Edit/Publish/Download/Print actions.</p>';
       return;
     }
-    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><button class="toolbar-button" data-sidebar-result="${exam.id}">Result Analyse</button><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
+    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
     holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', () => {
       const item = findExam(exam.id);
       if (!item) return showToast('Exam not found.', 'error');
@@ -1106,7 +1107,6 @@
     holder.querySelector('[data-sidebar-download]')?.addEventListener('click', () => downloadExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print]')?.addEventListener('click', () => printExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print-omr]')?.addEventListener('click', () => printOmrSheet(exam.id));
-    holder.querySelector('[data-sidebar-result]')?.addEventListener('click', () => renderResultAnalyzer(exam));
   }
 
   function renderResultAnalyzer(exam) {
@@ -1187,6 +1187,7 @@
       map.set(roll, {
         student_name: String(row.student_name || row.name || row.StudentName || '').trim(),
         class: String(row.class || row.Class || '').trim(),
+        institute: String(row.institute || row.Institute || '').trim(),
         phone_number: String(row.phone_number || row.phone || row.Phone || '').trim(),
       });
     });
@@ -1301,6 +1302,88 @@
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, sheet, 'Results');
     XLSX.writeFile(book, 'omr-result-batch.xlsx');
+  }
+
+  function initResultAnalysePage() {
+    const examSelect = document.getElementById('resultExamSelect');
+    const processBtn = document.getElementById('processOmrResultBtn');
+    const exportBtn = document.getElementById('exportOmrResultBtn');
+    const output = document.getElementById('resultAnalyseOutput');
+    const fileInput = document.getElementById('resultOmrImages');
+    if (!examSelect || !processBtn || !exportBtn || !output || !fileInput) return;
+    const params = new URLSearchParams(window.location.search);
+    const preselected = params.get('examId') || '';
+    examSelect.innerHTML = state.exams.length
+      ? state.exams.map((exam) => `<option value="${exam.id}" ${exam.id === preselected ? 'selected' : ''}>${escapeHtml(exam.title)} (${escapeHtml(exam.subject || '')})</option>`).join('')
+      : '<option value="">No exam found</option>';
+    processBtn.addEventListener('click', async () => {
+      const examId = examSelect.value;
+      const files = [...fileInput.files];
+      if (!examId || !files.length) {
+        output.innerHTML = '<p class="muted-copy">Exam select করুন এবং OMR images upload করুন।</p>';
+        return;
+      }
+      output.innerHTML = '<p class="muted-copy">Processing OMR images...</p>';
+      const rows = await analyseOmrBatchForExam(examId, files);
+      window.__latestOmrBatchResult = rows;
+      output.innerHTML = renderClassWiseResultTable(rows);
+    });
+    exportBtn.addEventListener('click', exportLatestResultWorkbook);
+  }
+
+  async function analyseOmrBatchForExam(examId, imageFiles) {
+    const exam = findExam(examId);
+    if (!exam) return [];
+    const answerKey = deriveStaticAnswerKey(exam);
+    const studentMap = buildStudentRollMap();
+    const rows = [];
+    for (const file of imageFiles) {
+      const detected = await detectOmrFromImage(file, answerKey.length);
+      const student = studentMap.get(detected.roll) || {};
+      const evaluated = evaluateDetectedAnswers(answerKey, detected.answers);
+      rows.push({
+        roll: detected.roll || '',
+        student_name: student.name || '',
+        class: student.className || student.course || 'Unknown',
+        institute: student.institute || '',
+        phone_number: student.phone || '',
+        correct: evaluated.correct,
+        wrong: evaluated.wrong,
+        not_answered: evaluated.notAnswered,
+        total: evaluated.total,
+        score: evaluated.correct,
+      });
+    }
+    rows.sort((a, b) => (a.class || '').localeCompare(b.class || '') || (b.score - a.score) || (a.wrong - b.wrong) || a.roll.localeCompare(b.roll));
+    let currentClass = '';
+    let pos = 0;
+    rows.forEach((row) => {
+      if (row.class !== currentClass) { currentClass = row.class; pos = 0; }
+      pos += 1;
+      row.merit_position = pos;
+      row.percent = row.total ? ((row.correct / row.total) * 100).toFixed(2) : '0.00';
+    });
+    return rows;
+  }
+
+  function buildStudentRollMap() {
+    const map = new Map();
+    state.students.forEach((student) => {
+      const roll = String(student.rollNumber || student.studentId || '').trim();
+      if (roll) map.set(roll, student);
+    });
+    return map;
+  }
+
+  function renderClassWiseResultTable(rows) {
+    if (!rows.length) return '<p class="muted-copy">No OMR result generated.</p>';
+    const grouped = rows.reduce((acc, row) => {
+      const key = row.class || 'Unknown';
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(row);
+      return acc;
+    }, {});
+    return Object.entries(grouped).map(([className, items]) => `<h4>Class: ${escapeHtml(className)}</h4><div class="table-wrap"><table><thead><tr><th>Merit</th><th>Roll</th><th>Name</th><th>Institute</th><th>Phone</th><th>Correct</th><th>Wrong</th><th>Not Answered</th><th>Total</th><th>%</th></tr></thead><tbody>${items.map((item) => `<tr><td>${item.merit_position}</td><td>${escapeHtml(item.roll)}</td><td>${escapeHtml(item.student_name)}</td><td>${escapeHtml(item.institute)}</td><td>${escapeHtml(item.phone_number)}</td><td>${item.correct}</td><td>${item.wrong}</td><td>${item.not_answered}</td><td>${item.total}</td><td>${item.percent}</td></tr>`).join('')}</tbody></table></div>`).join('');
   }
 
   function getQuestionFilters() {
@@ -1486,12 +1569,22 @@
     document.getElementById('studentForm').addEventListener('submit', saveStudent);
     document.getElementById('studentCsvFile').addEventListener('change', async (e) => { const file = e.target.files?.[0]; if (file) document.getElementById('studentCsvText').value = await file.text(); });
     document.getElementById('importStudentsBtn').addEventListener('click', importStudents);
+    document.getElementById('importStudentsXlsxBtn')?.addEventListener('click', importStudentsFromXlsx);
     renderStudents();
   }
 
   function saveStudent(event) {
     event.preventDefault();
-    state.students.unshift({ id: uid('student'), name: document.getElementById('studentName').value.trim(), studentId: document.getElementById('studentStudentId').value.trim(), email: document.getElementById('studentEmail').value.trim(), course: document.getElementById('studentCourse').value.trim(), active: true, createdAt: new Date().toISOString() });
+    state.students.unshift({
+      id: uid('student'),
+      name: document.getElementById('studentName').value.trim(),
+      rollNumber: document.getElementById('studentRollNumber').value.trim(),
+      className: document.getElementById('studentClass').value.trim(),
+      institute: document.getElementById('studentInstitute').value.trim(),
+      phone: document.getElementById('studentPhone').value.trim(),
+      active: true,
+      createdAt: new Date().toISOString(),
+    });
     saveState();
     event.target.reset();
     renderStudents();
@@ -1500,17 +1593,57 @@
 
   function importStudents() {
     const rows = parseCSVRows(document.getElementById('studentCsvText').value);
-    rows.forEach((row) => { if (row.name || row.studentId) state.students.unshift({ id: uid('student'), name: row.name || '', studentId: row.studentId || '', email: row.email || '', course: row.course || '', active: true, createdAt: new Date().toISOString() }); });
+    rows.forEach((row) => {
+      const roll = row.roll_number || row.roll || row.studentid || row.studentId || '';
+      if (!(row.student_name || row.name || roll)) return;
+      state.students.unshift({
+        id: uid('student'),
+        name: row.student_name || row.name || '',
+        rollNumber: roll,
+        className: row.class || row.course || '',
+        institute: row.institute || '',
+        phone: row.phone_number || row.phone || '',
+        active: true,
+        createdAt: new Date().toISOString(),
+      });
+    });
     saveState();
     renderStudents();
     showToast('Students imported from CSV.');
+  }
+
+  async function importStudentsFromXlsx() {
+    const file = document.getElementById('studentXlsxFile')?.files?.[0];
+    if (!file) return showToast('Upload an XLSX file first.', 'error');
+    const students = await readStudentListFromXlsx(file);
+    students.forEach((row, roll) => {
+      state.students.unshift({
+        id: uid('student'),
+        name: row.student_name || '',
+        rollNumber: roll,
+        className: row.class || '',
+        institute: row.institute || '',
+        phone: row.phone_number || '',
+        active: true,
+        createdAt: new Date().toISOString(),
+      });
+    });
+    saveState();
+    renderStudents();
+    showToast('Students imported from XLSX.');
   }
 
   function renderStudents() {
     const target = document.getElementById('studentList');
     if (!target) return;
     if (!state.students.length) return target.innerHTML = emptyState('No students added yet.');
-    target.innerHTML = state.students.map((student) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(student.name)}</h4><p>${escapeHtml(student.studentId)} · ${escapeHtml(student.email)} · ${escapeHtml(student.course || 'No course')}</p></div><span class="status-pill ${student.active ? 'is-live' : ''}">${student.active ? 'Active' : 'Inactive'}</span></div><div class="entity-actions"><button class="toolbar-button" data-toggle-student="${student.id}">${student.active ? 'Deactivate' : 'Activate'}</button><button class="toolbar-button toolbar-button--danger" data-delete-student="${student.id}">Delete</button></div></article>`).join('');
+    const grouped = state.students.reduce((acc, student) => {
+      const key = student.className || student.course || 'Unassigned';
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(student);
+      return acc;
+    }, {});
+    target.innerHTML = Object.entries(grouped).map(([className, items]) => `<section class="preview-surface preview-surface--small"><h4>Class: ${escapeHtml(className)}</h4>${items.map((student) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(student.name)}</h4><p>Roll: ${escapeHtml(student.rollNumber || student.studentId || '')} · ${escapeHtml(student.institute || '')} · ${escapeHtml(student.phone || student.email || '')}</p></div><span class="status-pill ${student.active ? 'is-live' : ''}">${student.active ? 'Active' : 'Inactive'}</span></div><div class="entity-actions"><button class="toolbar-button" data-toggle-student="${student.id}">${student.active ? 'Deactivate' : 'Activate'}</button><button class="toolbar-button toolbar-button--danger" data-delete-student="${student.id}">Delete</button></div></article>`).join('')}</section>`).join('');
     target.querySelectorAll('[data-toggle-student]').forEach((button) => button.addEventListener('click', () => { const student = state.students.find((item) => item.id === button.dataset.toggleStudent); student.active = !student.active; saveState(); renderStudents(); }));
     target.querySelectorAll('[data-delete-student]').forEach((button) => button.addEventListener('click', () => { state.students = state.students.filter((item) => item.id !== button.dataset.deleteStudent); saveState(); renderStudents(); }));
   }
