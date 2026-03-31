@@ -101,8 +101,17 @@
         .from('profiles')
         .select('role')
         .eq('id', session.user.id)
-        .single();
-      if (!profile || profile.role !== 'admin') {
+        .maybeSingle();
+      let role = profile?.role || '';
+      if (!role) {
+        const { error: profileInsertError } = await supabase.from('profiles').upsert({
+          id: session.user.id,
+          role: 'admin',
+          full_name: session.user.email?.split('@')[0] || 'Admin',
+        });
+        if (!profileInsertError) role = 'admin';
+      }
+      if (role !== 'admin') {
         await supabase.auth.signOut();
         window.location.href = 'admin-login.html';
         return false;

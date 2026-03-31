@@ -30,6 +30,14 @@ drop policy if exists "self read profile" on public.profiles;
 create policy "self read profile" on public.profiles
 for select using (id = auth.uid());
 
+drop policy if exists "self upsert profile" on public.profiles;
+create policy "self upsert profile" on public.profiles
+for insert with check (id = auth.uid());
+
+drop policy if exists "self update profile" on public.profiles;
+create policy "self update profile" on public.profiles
+for update using (id = auth.uid()) with check (id = auth.uid());
+
 -- Core tables
 create table if not exists public.exams (
   id text primary key,

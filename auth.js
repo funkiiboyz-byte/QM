@@ -24,10 +24,19 @@
       const password = form.querySelector('input[type="password"]').value;
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error || !data?.user) return alert('Invalid admin credentials.');
-      const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single();
-      if (!profile || profile.role !== 'admin') {
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle();
+      let role = profile?.role || '';
+      if (!role) {
+        const { error: profileInsertError } = await supabase.from('profiles').upsert({
+          id: data.user.id,
+          role: 'admin',
+          full_name: email.split('@')[0] || 'Admin',
+        });
+        if (!profileInsertError) role = 'admin';
+      }
+      if (role !== 'admin') {
         await supabase.auth.signOut();
-        return alert('This account is not an admin.');
+        return alert('This account is not an admin. Please set role=admin in profiles.');
       }
       const state = getState();
       const session = createSession('admin', email || 'admin');
