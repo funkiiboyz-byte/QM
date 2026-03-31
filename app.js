@@ -57,6 +57,7 @@
       case 'create-exam': initCreateExamPage(); break;
       case 'question-bank': initQuestionBankPage(); break;
       case 'handle-exams': initHandleExamsPage(); break;
+      case 'solution-download': initSolutionDownloadPage(); break;
       case 'students': initStudentsPage(); break;
       case 'result-analyse': initResultAnalysePage(); break;
       case 'student-profile': initStudentProfilePage(); break;
@@ -1075,7 +1076,7 @@
       holder.innerHTML = '<p class="muted-copy">Select an exam to use Edit/Publish/Download/Print actions.</p>';
       return;
     }
-    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
+    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
     holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', () => {
       const item = findExam(exam.id);
       if (!item) return showToast('Exam not found.', 'error');
@@ -1108,6 +1109,16 @@
     holder.querySelector('[data-sidebar-download]')?.addEventListener('click', () => downloadExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print]')?.addEventListener('click', () => printExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print-omr]')?.addEventListener('click', () => printOmrSheet(exam.id));
+    holder.querySelector('[data-sidebar-solution-publish]')?.addEventListener('click', () => {
+      const item = findExam(exam.id);
+      if (!item) return showToast('Exam not found.', 'error');
+      item.solutionPublished = !item.solutionPublished;
+      if (item.solutionPublished) item.solutionPublishedAt = new Date().toISOString();
+      else delete item.solutionPublishedAt;
+      saveState();
+      renderExamManager();
+      showToast(item.solutionPublished ? 'Solution link published.' : 'Solution link unpublished.');
+    });
   }
 
   function renderResultAnalyzer(exam) {
@@ -1467,7 +1478,11 @@
     };
   }
 
-  function buildExamPaperHtml(examId) {
+  function buildExamPaperHtml(examId, options = {}) {
+    const includeSolutionQr = options.includeSolutionQr !== false;
+    const forceAnswers = options.forceAnswers === true;
+    const forceExplanation = options.forceExplanation === true;
+    const disableAnswerSheet = options.disableAnswerSheet === true;
     const exam = findExam(examId);
     if (!exam) {
       return '<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Exam Not Found</title></head><body><p>Exam not found.</p></body></html>';
@@ -1486,21 +1501,27 @@
     for (let setIndex = 0; setIndex < safeSetCount; setIndex += 1) {
       const { setQuestions, answerKey } = buildQuestionSet(questions, config);
       const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${String.fromCharCode(65 + setIndex)}`;
+      const solutionUrl = getSolutionPublicUrl(exam.id);
+      const qrPayload = encodeURIComponent(solutionUrl);
+      const qrNote = exam.solutionPublished
+        ? 'Scan QR to download the solution paper.'
+        : 'Solution is not published yet.';
+      const qrBlock = includeSolutionQr ? `<div class="solution-qr solution-qr--paper"><img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${qrPayload}" alt="Solution Download QR" /><div><strong>Solution QR</strong><span>${escapeHtml(qrNote)}</span><a href="${escapeAttr(solutionUrl)}" target="_blank" rel="noopener">Open solution link</a></div></div>` : '';
       const list = setQuestions.map((question, index) => {
         const number = `${index + 1}`;
         const title = question.question || question.stimulus || '';
-        const body = question.type === 'cq'
-          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '')}${config.showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer || '')}</div>` : ''}</div>`).join('')
-          : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option)}</span></li>`).join('')}</ul>${config.showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '')}</p>` : ''}`;
-        const explanation = config.showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation)}</p>` : '';
-        const qrPayload = encodeURIComponent(`${title}\n\nAnswer: ${question.type === 'mcq' ? String.fromCharCode(65 + (question.correct || 0)) : ''}\nExplanation: ${question.explanation || ''}`);
-        const qrBlock = `<div class="solution-qr"><img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${qrPayload}" alt="Solution QR" /><span>Scan for solve + explanation</span></div>`;
-        return `<article class="print-question"><h3>${number}. ${formatMathForDisplay(title)}</h3>${body}${explanation}${qrBlock}</article>`;
+        const showAnswers = forceAnswers || config.showAnswers;
+        const showExplanation = forceExplanation || config.showExplanation;
+        const questionBody = question.type === 'cq'
+          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '')}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer || '')}</div>` : ''}</div>`).join('')
+          : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option)}</span></li>`).join('')}</ul>${showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '')}</p>` : ''}`;
+        const explanation = showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation)}</p>` : '';
+        return `<article class="print-question"><h3>${number}. ${formatMathForDisplay(title)}</h3>${questionBody}${explanation}</article>`;
       }).join('');
 
-      setMarkup.push(`<section class="paper set-paper"><div class="board-head board-head--${escapeAttr(headerTheme)}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
+      setMarkup.push(`<section class="paper set-paper"><div class="board-head board-head--${escapeAttr(headerTheme)}">${qrBlock}<h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
 
-      if (config.includeAnswerSheet) {
+      if (config.includeAnswerSheet && !disableAnswerSheet) {
         const omrRows = answerKey.map((item, idx) => {
           const mcq = item !== 'CQ';
           const bubble = (label) => `<span class="omr-bubble ${mcq && item === label ? 'is-correct' : ''}">${label}</span>`;
@@ -1510,7 +1531,51 @@
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{display:grid;grid-template-columns:repeat(${Math.max(1, Number(config.columns || 1))},minmax(0,1fr));gap:8px 14px;align-items:start}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 6px;border-bottom:1px solid #ddd}h3{font-size:14px;line-height:1.28;margin-bottom:4px}.option-list{list-style:none;padding-left:0;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:11px;color:#334155}.solution-qr img{width:54px;height:54px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{gap:6px 10px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{display:grid;grid-template-columns:repeat(${Math.max(1, Number(config.columns || 1))},minmax(0,1fr));gap:8px 14px;align-items:start}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 6px;border-bottom:1px solid #ddd}h3{font-size:14px;line-height:1.28;margin-bottom:4px}.option-list{list-style:none;padding-left:0;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:8px;top:8px;margin-top:0;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:4px 6px}.solution-qr--paper div{display:flex;flex-direction:column;text-align:left}.solution-qr img{width:60px;height:60px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{gap:6px 10px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+  }
+
+  function getSolutionPublicUrl(examId) {
+    const baseUrl = `${window.location.origin}${window.location.pathname}`;
+    const url = new URL('solution-download.html', baseUrl);
+    url.searchParams.set('examId', examId);
+    return url.toString();
+  }
+
+  function buildSolutionPaperHtml(examId) {
+    return buildExamPaperHtml(examId, {
+      includeSolutionQr: false,
+      forceAnswers: true,
+      forceExplanation: true,
+      disableAnswerSheet: true,
+    });
+  }
+
+  function initSolutionDownloadPage() {
+    const target = document.getElementById('solutionDownloadPage');
+    const downloadBtn = document.getElementById('downloadSolutionBtn');
+    if (!target || !downloadBtn) return;
+    const examId = new URLSearchParams(window.location.search).get('examId') || '';
+    const exam = findExam(examId);
+    if (!exam) {
+      target.innerHTML = '<p class="muted-copy">Exam not found.</p>';
+      downloadBtn.disabled = true;
+      return;
+    }
+    if (!exam.solutionPublished) {
+      target.innerHTML = `<h3>${escapeHtml(exam.title)}</h3><p class="muted-copy">Solution has not been published yet. Please contact your admin.</p>`;
+      downloadBtn.disabled = true;
+      return;
+    }
+    target.innerHTML = `<h3>${escapeHtml(exam.title)}</h3><p class="muted-copy">Solution is published. Tap the button below to download the solution paper.</p>`;
+    downloadBtn.disabled = false;
+    downloadBtn.addEventListener('click', () => {
+      const win = window.open('', '_blank', 'width=1100,height=780');
+      if (!win) return showToast('Popup blocked by browser.', 'error');
+      win.document.write(buildSolutionPaperHtml(examId));
+      win.document.close();
+      win.focus();
+      win.print();
+    });
   }
 
   function mergePrintConfig(config = {}) {
@@ -2022,6 +2087,86 @@
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, sheet, className || 'All Students');
     XLSX.writeFile(book, className ? `${className.replace(/\s+/g, '-').toLowerCase()}-students.xlsx` : 'all-students.xlsx');
+  }
+
+  function buildStudentProfileMarkup(studentId, selectedAttemptIds = [], activeAttemptId = '') {
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return '<p class="muted-copy">Student not found.</p>';
+    const attempts = state.attempts
+      .filter((attempt) => attempt.studentId === studentId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const selected = new Set(selectedAttemptIds);
+    const detailAttempt = attempts.find((attempt) => attempt.id === activeAttemptId) || attempts[0] || null;
+    const detailExam = detailAttempt ? findExam(detailAttempt.examId) : null;
+    const detailBreakdown = detailAttempt?.answerBreakdown || [];
+    const detailBreakdownMarkup = detailBreakdown.length
+      ? `<div class="table-wrap"><table class="result-table"><thead><tr><th>Q. No</th><th>Correct</th><th>Student</th><th>Status</th></tr></thead><tbody>${detailBreakdown.map((item) => `<tr><td>${item.qno}</td><td>${item.correct}</td><td>${item.marked}</td><td>${item.status}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="muted-copy">এই exam-এর answer breakdown পাওয়া যায়নি।</p>';
+    const detailOmr = detailAttempt?.omrPreview ? `<img src="${detailAttempt.omrPreview}" alt="OMR Preview" style="width:100%;max-height:260px;object-fit:contain;border:1px solid #cbd5e1;border-radius:10px;" />` : '<p class="muted-copy">No OMR image found for this exam.</p>';
+    const examRows = attempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td><input type="checkbox" data-attempt-select="${attempt.id}" ${selected.has(attempt.id) ? 'checked' : ''} /></td><td><button type="button" class="toolbar-button" data-attempt-view="${attempt.id}">Details</button></td><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
+    }).join('');
+    return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>Student Profile</h1><p>Exam List + Detailed Result View</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><h3>Given Exams</h3><p class="muted-copy">যে exam গুলো marksheet এ রাখতে চান সেগুলো checkbox দিয়ে select করুন।</p><div class="table-wrap"><table class="result-table"><thead><tr><th>Select</th><th>Details</th><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${examRows || '<tr><td colspan="6">No exam result yet.</td></tr>'}</tbody></table></div><h3>Selected Exam Details</h3>${detailAttempt ? `<p><strong>Exam:</strong> ${escapeHtml(detailExam?.title || detailAttempt.examId)} · <strong>Full Marks:</strong> ${detailAttempt.total} · <strong>Obtained:</strong> ${detailAttempt.score}</p>${detailOmr}<h4>Answer-wise Status</h4>${detailBreakdownMarkup}` : '<p class="muted-copy">কোনো exam attempt পাওয়া যায়নি।</p>'}</section>`;
+  }
+
+  function buildSelectedMarksheetMarkup(studentId, selectedAttemptIds = []) {
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return '<p>Student not found.</p>';
+    const selectedSet = new Set(selectedAttemptIds);
+    const selectedAttempts = state.attempts
+      .filter((attempt) => attempt.studentId === studentId && selectedSet.has(attempt.id))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const rows = selectedAttempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const highest = state.attempts
+        .filter((item) => item.examId === attempt.examId)
+        .reduce((max, item) => Math.max(max, Number(item.score || 0)), 0);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td>${new Date(attempt.createdAt).toLocaleDateString()}</td><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.total}</td><td>${attempt.score}</td><td>${highest}</td><td>${pct}%</td></tr>`;
+    }).join('');
+    return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>MegaPrep Result Card</h1><p>Selected Exam Marksheet</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><div class="table-wrap"><table class="result-table"><thead><tr><th>Date</th><th>Exam Name</th><th>Full Marks</th><th>Obtained Mark</th><th>Highest Mark</th><th>Percentage</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No selected exam.</td></tr>'}</tbody></table></div></section>`;
+  }
+
+  function initStudentProfilePage() {
+    const target = document.getElementById('studentProfilePage');
+    const printBtn = document.getElementById('printStudentMarksheetBtn');
+    if (!target || !printBtn) return;
+    const studentId = new URLSearchParams(window.location.search).get('studentId') || '';
+    const attempts = state.attempts.filter((attempt) => attempt.studentId === studentId);
+    const selectedAttemptIds = new Set(attempts.map((attempt) => attempt.id));
+    let activeAttemptId = attempts[0]?.id || '';
+
+    const render = () => {
+      target.innerHTML = buildStudentProfileMarkup(studentId, [...selectedAttemptIds], activeAttemptId);
+      target.querySelectorAll('[data-attempt-select]').forEach((checkbox) => checkbox.addEventListener('change', () => {
+        if (checkbox.checked) selectedAttemptIds.add(checkbox.dataset.attemptSelect);
+        else selectedAttemptIds.delete(checkbox.dataset.attemptSelect);
+      }));
+      target.querySelectorAll('[data-attempt-view]').forEach((button) => button.addEventListener('click', () => {
+        activeAttemptId = button.dataset.attemptView || '';
+        render();
+      }));
+    };
+
+    render();
+    printBtn.textContent = 'Print Selected Marksheet (PDF)';
+    printBtn.addEventListener('click', async () => {
+      if (!selectedAttemptIds.size) return showToast('At least one exam must be selected.', 'error');
+      const win = window.open('', '_blank', 'width=1000,height=800');
+      if (!win) return showToast('Popup blocked by browser.', 'error');
+      let cssText = '';
+      try {
+        cssText = await fetch('styles.css').then((res) => res.text());
+      } catch {
+        cssText = '';
+      }
+      win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Selected Marksheet</title><style>${cssText}</style></head><body>${buildSelectedMarksheetMarkup(studentId, [...selectedAttemptIds])}</body></html>`);
+      win.document.close();
+      win.focus();
+      win.print();
+    });
   }
 
   function initAnalyticsPage() {
