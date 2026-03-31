@@ -1,10 +1,13 @@
 (() => {
   const STORAGE_KEY = 'megaprep-cms-state-v2';
   const SESSION_KEY = 'megaprep-session-v1';
+  const SUPABASE_URL = 'https://qjwwsijubeiimoloeksa.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqd3dzaWp1YmVpaW1vbG9la3NhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjkyNTgsImV4cCI6MjA5MDU0NTI1OH0.TST4rsA7dM0HYIrgvoq05tZVUWd3RBF7IIYVWLeHbuU';
 
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => { init(); });
 
-  function init() {
+  async function init() {
+    await ensureSupabaseClient();
     bindAdminLogin();
     bindAdminSignup();
     bindStudentLogin();
@@ -14,15 +17,28 @@
   function bindAdminLogin() {
     const form = document.getElementById('adminLoginForm');
     if (!form) return;
-    form.addEventListener('submit', (event) => {
+    form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const state = getState();
+      const supabase = await ensureSupabaseClient();
       const email = form.querySelector('input[type="email"]').value.trim();
       const password = form.querySelector('input[type="password"]').value;
-      const validCustomAdmin = state.credentials.admins.find((admin) => admin.email === email && admin.password === password);
-      if (password !== state.credentials.adminPassword && !validCustomAdmin) {
-        return alert('Invalid admin credentials.');
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data?.user) return alert('Invalid admin credentials.');
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle();
+      let role = profile?.role || '';
+      if (!role) {
+        const { error: profileInsertError } = await supabase.from('profiles').upsert({
+          id: data.user.id,
+          role: 'admin',
+          full_name: email.split('@')[0] || 'Admin',
+        });
+        if (!profileInsertError) role = 'admin';
       }
+      if (role !== 'admin') {
+        await supabase.auth.signOut();
+        return alert('This account is not an admin. Please set role=admin in profiles.');
+      }
+      const state = getState();
       const session = createSession('admin', email || 'admin');
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       saveDevice(state, session);
@@ -33,9 +49,9 @@
   function bindAdminSignup() {
     const form = document.getElementById('adminSignupForm');
     if (!form) return;
-    form.addEventListener('submit', (event) => {
+    form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const state = getState();
+      const supabase = await ensureSupabaseClient();
       const inputs = form.querySelectorAll('input');
       const payload = {
         id: `admin-${Date.now()}`,
@@ -45,9 +61,12 @@
         phone: inputs[3].value.trim(),
         password: inputs[4].value,
       };
+      const { data, error } = await supabase.auth.signUp({ email: payload.email, password: payload.password });
+      if (error || !data?.user) return alert(error?.message || 'Failed to create admin account.');
+      const state = getState();
       state.credentials.admins.push(payload);
       saveState(state);
-      alert('Admin account created. Please login.');
+      alert('Admin auth account created. Set this user as admin in Supabase profiles table, then login.');
       window.location.href = 'admin-login.html';
     });
   }
@@ -127,5 +146,26 @@
 
   function saveState(state) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  async function ensureSupabaseClient() {
+    if (window.__supabaseClient) return window.__supabaseClient;
+    await ensureScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
+    if (!window.supabase?.createClient) throw new Error('Supabase SDK failed to load.');
+    window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    return window.__supabaseClient;
+  }
+
+  function ensureScript(src) {
+    if (document.querySelector(`script[data-src="${src}"]`)) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = true;
+      script.dataset.src = src;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+      document.head.appendChild(script);
+    });
   }
 })();
