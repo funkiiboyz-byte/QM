@@ -3,6 +3,8 @@
   const SESSION_KEY = 'megaprep-session-v1';
   const OPENAI_KEY_STORAGE = 'megaprep-openai-key-v1';
   const OPENAI_MODEL_STORAGE = 'megaprep-openai-model-v1';
+  const SUPABASE_URL = 'https://qjwwsijubeiimoloeksa.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqd3dzaWp1YmVpaW1vbG9la3NhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjkyNTgsImV4cCI6MjA5MDU0NTI1OH0.TST4rsA7dM0HYIrgvoq05tZVUWd3RBF7IIYVWLeHbuU';
   const CURRICULUM = window.MEGAPREP_CURRICULUM || {};
   const defaultState = {
     exams: [],
@@ -44,10 +46,16 @@
   let selectedQuestionExamId = '';
   let editingQuestionId = '';
   let selectedManageExamId = '';
+  let supabaseClientPromise = null;
 
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => { init(); });
 
-  function init() {
+  async function init() {
+    const currentPage = document.body.dataset.page || '';
+    if (currentPage !== 'solution-download') {
+      const allowed = await ensureAdminAccess();
+      if (!allowed) return;
+    }
     bindThemeToggle();
     bindExportImport();
     ensureCurrentDevice();
@@ -65,6 +73,44 @@
       case 'devices': initDevicesPage(); break;
       case 'passwords': initPasswordsPage(); break;
       default: break;
+    }
+  }
+
+  async function ensureSupabaseClient() {
+    if (window.__supabaseClient) return window.__supabaseClient;
+    if (!supabaseClientPromise) {
+      supabaseClientPromise = ensureScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2')
+        .then(() => {
+          if (!window.supabase?.createClient) throw new Error('Supabase SDK not loaded.');
+          window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+          return window.__supabaseClient;
+        });
+    }
+    return supabaseClientPromise;
+  }
+
+  async function ensureAdminAccess() {
+    try {
+      const supabase = await ensureSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        window.location.href = 'admin-login.html';
+        return false;
+      }
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .single();
+      if (!profile || profile.role !== 'admin') {
+        await supabase.auth.signOut();
+        window.location.href = 'admin-login.html';
+        return false;
+      }
+      return true;
+    } catch {
+      window.location.href = 'admin-login.html';
+      return false;
     }
   }
 
