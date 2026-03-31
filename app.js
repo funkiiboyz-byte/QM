@@ -1313,6 +1313,27 @@
     return { correct, wrong, notAnswered, total };
   }
 
+  function buildAnswerBreakdown(answerKey, markedAnswers) {
+    const list = [];
+    answerKey.forEach((key, idx) => {
+      if (key === 'CQ') return;
+      const marked = markedAnswers[idx] || '';
+      list.push({
+        qno: idx + 1,
+        correct: key,
+        marked: marked || '-',
+        status: !marked ? 'Not Answered' : (marked === key ? 'Correct' : 'Wrong'),
+      });
+    });
+    return list;
+  }
+
+  function upsertOmrAttempt(next) {
+    const idx = state.attempts.findIndex((attempt) => attempt.examId === next.examId && attempt.studentId === next.studentId);
+    if (idx >= 0) state.attempts[idx] = { ...state.attempts[idx], ...next };
+    else state.attempts.unshift({ id: uid('attempt'), ...next });
+  }
+
   async function exportLatestResultWorkbook() {
     const rows = window.__latestOmrBatchResult || [];
     if (!rows.length) return showToast('Process result first, then export.', 'error');
@@ -1374,6 +1395,22 @@
       const detected = await detectOmrFromImage(file, answerKey.length);
       const student = studentMap.get(detected.roll) || {};
       const evaluated = evaluateDetectedAnswers(answerKey, detected.answers);
+      const breakdown = buildAnswerBreakdown(answerKey, detected.answers);
+      if (student.id) {
+        const preview = await readFileAsDataUrl(file);
+        upsertOmrAttempt({
+          examId,
+          studentId: student.id,
+          score: evaluated.correct,
+          total: evaluated.total,
+          correctIds: breakdown.filter((item) => item.status === 'Correct').map((item) => String(item.qno)),
+          incorrectIds: breakdown.filter((item) => item.status === 'Wrong').map((item) => String(item.qno)),
+          studentAnswers: detected.answers,
+          answerBreakdown: breakdown,
+          omrPreview: preview,
+          createdAt: new Date().toISOString(),
+        });
+      }
       rows.push({
         roll: detected.roll || '',
         student_name: student.name || '',
@@ -1387,6 +1424,7 @@
         score: evaluated.correct,
       });
     }
+    saveState();
     rows.sort((a, b) => (a.class || '').localeCompare(b.class || '') || (b.score - a.score) || (a.wrong - b.wrong) || a.roll.localeCompare(b.roll));
     let currentClass = '';
     let pos = 0;
@@ -1455,7 +1493,9 @@
           ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '')}${config.showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer || '')}</div>` : ''}</div>`).join('')
           : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option)}</span></li>`).join('')}</ul>${config.showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '')}</p>` : ''}`;
         const explanation = config.showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation)}</p>` : '';
-        return `<article class="print-question"><h3>${number}. ${formatMathForDisplay(title)}</h3>${body}${explanation}</article>`;
+        const qrPayload = encodeURIComponent(`${title}\n\nAnswer: ${question.type === 'mcq' ? String.fromCharCode(65 + (question.correct || 0)) : ''}\nExplanation: ${question.explanation || ''}`);
+        const qrBlock = `<div class="solution-qr"><img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${qrPayload}" alt="Solution QR" /><span>Scan for solve + explanation</span></div>`;
+        return `<article class="print-question"><h3>${number}. ${formatMathForDisplay(title)}</h3>${body}${explanation}${qrBlock}</article>`;
       }).join('');
 
       setMarkup.push(`<section class="paper set-paper"><div class="board-head board-head--${escapeAttr(headerTheme)}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
@@ -1470,7 +1510,7 @@
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{display:grid;grid-template-columns:repeat(${Math.max(1, Number(config.columns || 1))},minmax(0,1fr));gap:8px 14px;align-items:start}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 6px;border-bottom:1px solid #ddd}h3{font-size:14px;line-height:1.28;margin-bottom:4px}.option-list{list-style:none;padding-left:0;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{gap:6px 10px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{display:grid;grid-template-columns:repeat(${Math.max(1, Number(config.columns || 1))},minmax(0,1fr));gap:8px 14px;align-items:start}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 6px;border-bottom:1px solid #ddd}h3{font-size:14px;line-height:1.28;margin-bottom:4px}.option-list{list-style:none;padding-left:0;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:11px;color:#334155}.solution-qr img{width:54px;height:54px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{gap:6px 10px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
   }
 
   function mergePrintConfig(config = {}) {
@@ -1879,6 +1919,69 @@
     const totalExams = attempts.length;
     const avgPercent = attempts.length ? (attempts.reduce((sum, item) => sum + ((item.total ? item.score / item.total : 0) * 100), 0) / attempts.length).toFixed(2) : '0.00';
     return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>MegaPrep Result Card</h1><p>Academic Transcript</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><div class="result-card__stats"><article><strong>${totalExams}</strong><span>Total Exams</span></article><article><strong>${avgPercent}%</strong><span>Average %</span></article></div><div class="table-wrap"><table class="result-table"><thead><tr><th>Date</th><th>Exam Name</th><th>Full Marks</th><th>Obtained Mark</th><th>Highest Mark</th><th>Percentage</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No exam result yet.</td></tr>'}</tbody></table></div></section>`;
+  }
+
+  function initStudentProfilePage() {
+    const target = document.getElementById('studentProfilePage');
+    const printBtn = document.getElementById('printStudentMarksheetBtn');
+    if (!target || !printBtn) return;
+    const params = new URLSearchParams(window.location.search);
+    const studentId = params.get('studentId') || '';
+    target.innerHTML = buildStudentProfileMarkup(studentId);
+    printBtn.addEventListener('click', async () => {
+      const win = window.open('', '_blank', 'width=1000,height=800');
+      if (!win) return showToast('Popup blocked by browser.', 'error');
+      let cssText = '';
+      try {
+        cssText = await fetch('styles.css').then((res) => res.text());
+      } catch {
+        cssText = '';
+      }
+      win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Marksheet</title><style>${cssText}</style></head><body>${buildStudentProfileMarkup(studentId)}</body></html>`);
+      win.document.close();
+      win.print();
+    });
+  }
+
+  async function exportStudentsSheet(className = '') {
+    const XLSX = await ensureXlsxLib();
+    const rows = state.students
+      .filter((student) => !className || (student.className || student.course || '') === className)
+      .map((student) => ({
+        roll_number: student.rollNumber || '',
+        student_name: student.name || '',
+        class: student.className || student.course || '',
+        institute: student.institute || '',
+        phone_number: student.phone || '',
+      }));
+    if (!rows.length) return showToast('No student found for export.', 'error');
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, className || 'All Students');
+    XLSX.writeFile(book, className ? `${className.replace(/\s+/g, '-').toLowerCase()}-students.xlsx` : 'all-students.xlsx');
+  }
+
+  function buildStudentProfileMarkup(studentId) {
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return '<p class="muted-copy">Student not found.</p>';
+    const attempts = state.attempts.filter((attempt) => attempt.studentId === studentId);
+    const rows = attempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const highest = state.attempts
+        .filter((item) => item.examId === attempt.examId)
+        .reduce((max, item) => Math.max(max, Number(item.score || 0)), 0);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td>${new Date(attempt.createdAt).toLocaleDateString()}</td><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.total}</td><td>${attempt.score}</td><td>${highest}</td><td>${pct}%</td></tr>`;
+    }).join('');
+    const totalExams = attempts.length;
+    const avgPercent = attempts.length ? (attempts.reduce((sum, item) => sum + ((item.total ? item.score / item.total : 0) * 100), 0) / attempts.length).toFixed(2) : '0.00';
+    const latestOmr = attempts.find((attempt) => attempt.omrPreview);
+    const latestBreakdown = latestOmr?.answerBreakdown || [];
+    const breakdownMarkup = latestBreakdown.length
+      ? `<div class="table-wrap"><table class="result-table"><thead><tr><th>Q. No</th><th>Correct</th><th>Student</th><th>Status</th></tr></thead><tbody>${latestBreakdown.map((item) => `<tr><td>${item.qno}</td><td>${item.correct}</td><td>${item.marked}</td><td>${item.status}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="muted-copy">No OMR answer breakdown available yet.</p>';
+    const omrPreview = latestOmr?.omrPreview ? `<img src="${latestOmr.omrPreview}" alt="Latest OMR Scan" style="width:100%;max-height:280px;object-fit:contain;border:1px solid #cbd5e1;border-radius:10px;" />` : '<p class="muted-copy">No scanned OMR attached yet.</p>';
+    return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>MegaPrep Result Card</h1><p>Academic Transcript</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><div class="result-card__stats"><article><strong>${totalExams}</strong><span>Total Exams</span></article><article><strong>${avgPercent}%</strong><span>Average %</span></article></div><div class="table-wrap"><table class="result-table"><thead><tr><th>Date</th><th>Exam Name</th><th>Full Marks</th><th>Obtained Mark</th><th>Highest Mark</th><th>Percentage</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No exam result yet.</td></tr>'}</tbody></table></div><h3>Latest Scanned OMR</h3>${omrPreview}<h3>Answer-wise Status</h3>${breakdownMarkup}</section>`;
   }
 
   function initStudentProfilePage() {
