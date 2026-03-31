@@ -38,14 +38,18 @@
       try {
         supabase = await ensureSupabaseClient();
       } catch {
+        const ok = loginWithLocalFallback(emailFromForm(form), passwordFromForm(form));
         if (submitBtn) submitBtn.disabled = false;
-        return alert('Supabase সংযোগ হচ্ছে না। কিছুক্ষণ পর আবার চেষ্টা করুন।');
+        if (ok) return window.location.replace('index.html');
+        return alert('Supabase সংযোগ হচ্ছে না এবং local admin credentials-ও মেলেনি।');
       }
       const email = form.querySelector('input[type="email"]').value.trim();
       const password = form.querySelector('input[type="password"]').value;
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error || !data?.user) {
+        const ok = loginWithLocalFallback(email, password);
         if (submitBtn) submitBtn.disabled = false;
+        if (ok) return window.location.replace('index.html');
         return alert('Invalid admin credentials.');
       }
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle();
@@ -176,6 +180,24 @@
 
   function saveState(state) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function emailFromForm(form) {
+    return form.querySelector('input[type="email"]')?.value?.trim() || '';
+  }
+
+  function passwordFromForm(form) {
+    return form.querySelector('input[type="password"]')?.value || '';
+  }
+
+  function loginWithLocalFallback(email, password) {
+    const state = getState();
+    const validCustomAdmin = state.credentials?.admins?.find((admin) => admin.email === email && admin.password === password);
+    if (password !== state.credentials?.adminPassword && !validCustomAdmin) return false;
+    const session = createSession('admin', email || 'admin');
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    saveDevice(state, session);
+    return true;
   }
 
   async function ensureSupabaseClient() {
