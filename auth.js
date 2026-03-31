@@ -7,10 +7,24 @@
   document.addEventListener('DOMContentLoaded', () => { init(); });
 
   function init() {
+    redirectIfAdminAlreadyLoggedIn();
     bindAdminLogin();
     bindAdminSignup();
     bindStudentLogin();
     bindStudentSignup();
+  }
+
+  async function redirectIfAdminAlreadyLoggedIn() {
+    if (!/admin-login\.html|admin-signup\.html/.test(window.location.pathname)) return;
+    try {
+      const supabase = await ensureSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
+      if (profile?.role === 'admin') window.location.replace('index.html');
+    } catch {
+      // ignore
+    }
   }
 
   function bindAdminLogin() {
@@ -18,16 +32,22 @@
     if (!form) return;
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
+      const submitBtn = form.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
       let supabase;
       try {
         supabase = await ensureSupabaseClient();
       } catch {
+        if (submitBtn) submitBtn.disabled = false;
         return alert('Supabase সংযোগ হচ্ছে না। কিছুক্ষণ পর আবার চেষ্টা করুন।');
       }
       const email = form.querySelector('input[type="email"]').value.trim();
       const password = form.querySelector('input[type="password"]').value;
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error || !data?.user) return alert('Invalid admin credentials.');
+      if (error || !data?.user) {
+        if (submitBtn) submitBtn.disabled = false;
+        return alert('Invalid admin credentials.');
+      }
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle();
       let role = profile?.role || '';
       if (!role) {
@@ -40,13 +60,14 @@
       }
       if (role !== 'admin') {
         await supabase.auth.signOut();
+        if (submitBtn) submitBtn.disabled = false;
         return alert('This account is not an admin. Please set role=admin in profiles.');
       }
       const state = getState();
       const session = createSession('admin', email || 'admin');
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       saveDevice(state, session);
-      window.location.href = 'index.html';
+      window.location.replace('index.html');
     });
   }
 
