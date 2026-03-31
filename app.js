@@ -1280,6 +1280,19 @@
       return digits.join('').replace(/\s+/g, '');
     };
     const roll = detectColumnDigits(1800, 980, 6, 24, 36);
+    const detectSetCode = () => {
+      const labels = ['A', 'B', 'C', 'D'];
+      let best = '';
+      let bestScore = -1;
+      labels.forEach((label, idx) => {
+        const score = bubbleFillScore(1888 + (idx * 44), 1640, 7, 12);
+        if (score > bestScore) {
+          bestScore = score;
+          best = label;
+        }
+      });
+      return bestScore > 12 ? best : '';
+    };
     const answers = [];
     const startX = 285;
     const startY = 980;
@@ -1306,7 +1319,8 @@
         answers.push(bestScore > 14 ? bestLabel : '');
       }
     }
-    return { roll, answers };
+    const setCode = detectSetCode();
+    return { roll, answers, setCode };
   }
 
   function evaluateDetectedAnswers(answerKey, markedAnswers) {
@@ -1376,15 +1390,16 @@
       const filtered = omrDrafts.filter((item) => {
         const roll = String(item.editedRoll || '').toLowerCase();
         const student = studentMap.get(item.editedRoll || '') || {};
-        const name = String(student.name || '').toLowerCase();
+        const name = String(item.editedName || student.name || '').toLowerCase();
+        const setCode = String(item.editedSet || '').toLowerCase();
         const fileName = String(item.file.name || '').toLowerCase();
         const query = omrSearch.toLowerCase();
         if (!query) return true;
-        return roll.includes(query) || name.includes(query) || fileName.includes(query);
+        return roll.includes(query) || name.includes(query) || setCode.includes(query) || fileName.includes(query);
       });
-      preview.innerHTML = `<label>Search OMR / Roll / Name<input id="omrPreviewSearchInput" type="search" value="${escapeAttr(omrSearch)}" placeholder="Search by roll, name, file" /></label><div class="omr-preview-grid">${filtered.map((item, index) => {
+      preview.innerHTML = `<label>Search OMR / Roll / Name / Set<input id="omrPreviewSearchInput" type="search" value="${escapeAttr(omrSearch)}" placeholder="Search by roll, name, set, file" /></label><div class="omr-preview-grid">${filtered.map((item, index) => {
         const student = studentMap.get(item.editedRoll || '') || {};
-        return `<article class="entity-card entity-card--stacked"><div><h4>OMR ${index + 1}</h4><p class="muted-copy">${escapeHtml(item.file.name)}</p><label>Detected Roll<input type="text" data-roll-edit="${escapeAttr(item.key)}" value="${escapeAttr(item.editedRoll || '')}" /></label><p class="muted-copy">Roll: <strong>${escapeHtml(item.editedRoll || 'N/A')}</strong></p><p class="muted-copy">Name: <strong>${escapeHtml(student.name || 'Unknown')}</strong></p></div><img src="${item.previewUrl}" alt="OMR preview ${index + 1}" style="width:100%;max-height:220px;object-fit:contain;border:1px solid #d8dee9;border-radius:12px;background:#fff;" /></article>`;
+        return `<article class="entity-card entity-card--stacked"><div><h4>OMR ${index + 1}</h4><p class="muted-copy">${escapeHtml(item.file.name)}</p><div class="field-row"><label>Set<input type="text" data-set-edit="${escapeAttr(item.key)}" value="${escapeAttr(item.editedSet || '')}" /></label><label>Roll<input type="text" data-roll-edit="${escapeAttr(item.key)}" value="${escapeAttr(item.editedRoll || '')}" /></label></div><label>Name<input type="text" data-name-edit="${escapeAttr(item.key)}" value="${escapeAttr(item.editedName || student.name || '')}" /></label></div><img src="${item.previewUrl}" alt="OMR preview ${index + 1}" style="width:100%;max-height:220px;object-fit:contain;border:1px solid #d8dee9;border-radius:12px;background:#fff;" /></article>`;
       }).join('')}</div>`;
       preview.querySelector('#omrPreviewSearchInput')?.addEventListener('input', (event) => {
         omrSearch = event.target.value || '';
@@ -1394,7 +1409,16 @@
         const draft = omrDrafts.find((item) => item.key === event.target.dataset.rollEdit);
         if (!draft) return;
         draft.editedRoll = String(event.target.value || '').trim();
-        renderDraftCards();
+      }));
+      preview.querySelectorAll('[data-set-edit]').forEach((input) => input.addEventListener('input', (event) => {
+        const draft = omrDrafts.find((item) => item.key === event.target.dataset.setEdit);
+        if (!draft) return;
+        draft.editedSet = String(event.target.value || '').trim().toUpperCase();
+      }));
+      preview.querySelectorAll('[data-name-edit]').forEach((input) => input.addEventListener('input', (event) => {
+        const draft = omrDrafts.find((item) => item.key === event.target.dataset.nameEdit);
+        if (!draft) return;
+        draft.editedName = String(event.target.value || '').trim();
       }));
     };
 
@@ -1416,6 +1440,9 @@
           previewUrl: URL.createObjectURL(file),
           detectedRoll: detected.roll || '',
           editedRoll: detected.roll || '',
+          detectedSet: detected.setCode || '',
+          editedSet: detected.setCode || '',
+          editedName: '',
         });
       }
       renderDraftCards();
@@ -1432,7 +1459,11 @@
         output.innerHTML = '<p class="muted-copy">Exam select করুন এবং OMR images upload করুন।</p>';
         return;
       }
-      const rollOverrides = new Map(omrDrafts.map((item) => [item.key, item.editedRoll || item.detectedRoll || '']));
+      const rollOverrides = new Map(omrDrafts.map((item) => [item.key, {
+        roll: item.editedRoll || item.detectedRoll || '',
+        setCode: item.editedSet || item.detectedSet || '',
+        student_name: item.editedName || '',
+      }]));
       output.innerHTML = '<p class="muted-copy">Processing OMR images...</p>';
       const rows = await analyseOmrBatchForExam(examId, files, rollOverrides);
       window.__latestOmrBatchResult = rows;
@@ -1464,8 +1495,11 @@
     const getFileKey = (file) => `${file.name}__${file.size}__${file.lastModified}`;
     for (const file of imageFiles) {
       const detected = await detectOmrFromImage(file, answerKey.length);
-      const finalRoll = rollOverrides.get(getFileKey(file)) || detected.roll || '';
+      const override = rollOverrides.get(getFileKey(file));
+      const finalRoll = typeof override === 'string' ? override : (override?.roll || detected.roll || '');
+      const finalSet = typeof override === 'object' ? (override?.setCode || detected.setCode || '') : (detected.setCode || '');
       const student = studentMap.get(finalRoll) || {};
+      const finalName = (typeof override === 'object' && override?.student_name) ? override.student_name : (student.name || '');
       const evaluated = evaluateDetectedAnswers(answerKey, detected.answers);
       const breakdown = buildAnswerBreakdown(answerKey, detected.answers);
       if (student.id) {
@@ -1480,12 +1514,14 @@
           studentAnswers: detected.answers,
           answerBreakdown: breakdown,
           omrPreview: preview,
+          omrSet: finalSet,
           createdAt: new Date().toISOString(),
         });
       }
       rows.push({
+        set: finalSet,
         roll: finalRoll,
-        student_name: student.name || '',
+        student_name: finalName,
         class: student.className || student.course || 'Unknown',
         institute: student.institute || '',
         phone_number: student.phone || '',
@@ -1526,7 +1562,7 @@
       acc[key].push(row);
       return acc;
     }, {});
-    return Object.entries(grouped).map(([className, items]) => `<h4>Class: ${escapeHtml(className)}</h4><div class="table-wrap"><table><thead><tr><th>Merit</th><th>Roll</th><th>Name</th><th>Institute</th><th>Phone</th><th>Correct</th><th>Wrong</th><th>Not Answered</th><th>Total</th><th>%</th></tr></thead><tbody>${items.map((item) => `<tr><td>${item.merit_position}</td><td>${escapeHtml(item.roll)}</td><td>${escapeHtml(item.student_name)}</td><td>${escapeHtml(item.institute)}</td><td>${escapeHtml(item.phone_number)}</td><td>${item.correct}</td><td>${item.wrong}</td><td>${item.not_answered}</td><td>${item.total}</td><td>${item.percent}</td></tr>`).join('')}</tbody></table></div>`).join('');
+    return Object.entries(grouped).map(([className, items]) => `<h4>Class: ${escapeHtml(className)}</h4><div class="table-wrap"><table><thead><tr><th>Merit</th><th>Set</th><th>Roll</th><th>Name</th><th>Institute</th><th>Phone</th><th>Correct</th><th>Wrong</th><th>Not Answered</th><th>Total</th><th>%</th></tr></thead><tbody>${items.map((item) => `<tr><td>${item.merit_position}</td><td>${escapeHtml(item.set || '')}</td><td>${escapeHtml(item.roll)}</td><td>${escapeHtml(item.student_name)}</td><td>${escapeHtml(item.institute)}</td><td>${escapeHtml(item.phone_number)}</td><td>${item.correct}</td><td>${item.wrong}</td><td>${item.not_answered}</td><td>${item.total}</td><td>${item.percent}</td></tr>`).join('')}</tbody></table></div>`).join('');
   }
 
   function getQuestionFilters() {
@@ -1578,7 +1614,7 @@
         return `<article class="print-question"><h3>${number}. ${formatMathForDisplay(title, { subject: displaySubject })}</h3>${questionBody}${explanation}</article>`;
       }).join('');
 
-      setMarkup.push(`<section class="paper set-paper"><div class="board-head board-head--${escapeAttr(headerTheme)}${includeSolutionQr ? ' has-solution-qr' : ''}">${qrBlock}<h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
+      setMarkup.push(`<section class="paper set-paper">${qrBlock}<div class="board-head board-head--${escapeAttr(headerTheme)}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
 
       if (config.includeAnswerSheet && !disableAnswerSheet) {
         const omrRows = answerKey.map((item, idx) => {
@@ -1590,7 +1626,7 @@
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.board-head.has-solution-qr{padding-left:120px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{display:grid;grid-template-columns:repeat(${Math.max(1, Number(config.columns || 1))},minmax(0,1fr));gap:8px 14px;align-items:start}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 6px;border-bottom:1px solid #ddd}h3{font-size:14px;line-height:1.28;margin-bottom:4px}.option-list{list-style:none;padding-left:0;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:8px;top:8px;margin-top:0;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{gap:6px 10px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{display:grid;grid-template-columns:repeat(${Math.max(1, Number(config.columns || 1))},minmax(0,1fr));gap:8px 14px;align-items:start}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 6px;border-bottom:1px solid #ddd}h3{font-size:14px;line-height:1.28;margin-bottom:4px}.option-list{list-style:none;padding-left:0;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:10px;top:10px;z-index:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{gap:6px 10px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
   }
 
   function getSolutionPublicUrl(examId) {
@@ -1616,7 +1652,7 @@
     const examId = new URLSearchParams(window.location.search).get('examId') || '';
     const exam = findExam(examId);
     if (!exam) {
-      target.innerHTML = '<p class="muted-copy">Exam not found.</p>';
+      target.innerHTML = '<p class="muted-copy">Exam not found in local database. এই ডিভাইসে exam data import/publish করা না থাকলে solution download করা যাবে না।</p>';
       downloadBtn.disabled = true;
       return;
     }
