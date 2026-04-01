@@ -95,9 +95,7 @@
     try {
       const supabase = await ensureSupabaseClient();
       const { data: { session } } = await supabase.auth.getSession();
-      const localSession = getSession();
       if (!session?.user) {
-        if (localSession?.role === 'admin') return true;
         window.location.href = 'admin-login.html';
         return false;
       }
@@ -117,13 +115,11 @@
       }
       if (role !== 'admin') {
         await supabase.auth.signOut();
-        if (localSession?.role === 'admin') return true;
         window.location.href = 'admin-login.html';
         return false;
       }
       return true;
     } catch {
-      if (getSession()?.role === 'admin') return true;
       window.location.href = 'admin-login.html';
       return false;
     }
@@ -164,11 +160,12 @@
   async function hydrateStateFromCloud() {
     try {
       const supabase = await ensureSupabaseClient();
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('app_settings')
         .select('workspace_data')
         .eq('id', 1)
         .maybeSingle();
+      if (error) throw error;
       const cloudData = data?.workspace_data || null;
       const localHasData = !!(state.exams?.length || state.questions?.length || state.students?.length || state.attempts?.length);
       if (!cloudData || !Object.keys(cloudData).length) {
@@ -187,13 +184,14 @@
   async function syncStateToCloud() {
     try {
       const supabase = await ensureSupabaseClient();
-      await supabase.from('app_settings').upsert({
+      const { error } = await supabase.from('app_settings').upsert({
         id: 1,
         workspace_data: state,
         dark_mode: !!state.settings?.darkMode,
         print_config: state.settings?.printConfig || {},
         credentials: state.credentials || {},
       });
+      if (error) throw error;
     } catch {
       console.warn('Cloud sync failed. Data kept locally.');
     }
