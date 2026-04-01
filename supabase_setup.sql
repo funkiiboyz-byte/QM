@@ -169,4 +169,25 @@ for all using (public.is_admin()) with check (public.is_admin());
 create policy "admin_all_app_settings" on public.app_settings
 for all using (public.is_admin()) with check (public.is_admin());
 
+-- Auto-promote your known admin email (if auth user already exists)
+do $$
+declare
+  v_admin_id uuid;
+begin
+  select id into v_admin_id
+  from auth.users
+  where email = 'shahreyar202020@gmail.com'
+  limit 1;
+
+  if v_admin_id is not null then
+    insert into public.profiles (id, role, full_name)
+    values (v_admin_id, 'admin', 'shahreyar202020')
+    on conflict (id) do update
+      set role = 'admin',
+          full_name = excluded.full_name,
+          updated_at = now();
+  end if;
+end
+$$;
+
 commit;

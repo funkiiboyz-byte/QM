@@ -80,25 +80,21 @@
         if (submitBtn) submitBtn.disabled = false;
         return alert('Invalid admin credentials.');
       }
-      window.location.href = DASHBOARD_URL;
-      const authSession = await waitForSession(supabase);
-      if (!authSession?.user) {
-        if (submitBtn) submitBtn.disabled = false;
-        return alert('Login session তৈরি হচ্ছে না। আবার login দিন।');
-      }
-      const { error: profileError } = await supabase.from('profiles').upsert({
-        id: authSession.user.id,
-        role: 'admin',
-        full_name: email.split('@')[0] || 'Admin',
-      });
-      if (profileError) {
-        console.warn('Profile upsert failed, continuing with active Supabase session:', profileError.message || profileError);
-      }
       const state = getState();
       await seedCloudWorkspaceFromLocal(supabase, state);
       const session = createSession('admin', email || 'admin');
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       saveDevice(state, session);
+      const authSession = await waitForSession(supabase);
+      if (authSession?.user) {
+        supabase.from('profiles').upsert({
+          id: authSession.user.id,
+          role: 'admin',
+          full_name: email.split('@')[0] || 'Admin',
+        }).then(({ error: profileError }) => {
+          if (profileError) console.warn('Profile upsert failed, continuing with active session:', profileError.message || profileError);
+        });
+      }
       window.location.replace(DASHBOARD_URL);
     });
   }

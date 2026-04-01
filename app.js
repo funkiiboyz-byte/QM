@@ -110,7 +110,9 @@
     try {
       const supabase = await ensureSupabaseClient();
       const session = await getSupabaseSessionWithRetry(supabase);
+      const localSession = getSession();
       if (!session?.user) {
+        if (localSession?.role === 'admin') return true;
         window.location.href = 'admin-login.html';
         return false;
       }
