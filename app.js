@@ -114,9 +114,8 @@
         full_name: session.user.email?.split('@')[0] || 'Admin',
       });
       if (profileError) {
-        await supabase.auth.signOut();
-        window.location.href = 'admin-login.html';
-        return false;
+        console.warn('Profile upsert failed, allowing active Supabase session:', profileError.message || profileError);
+        return true;
       }
       return true;
     } catch {

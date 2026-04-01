@@ -68,9 +68,7 @@
         full_name: email.split('@')[0] || 'Admin',
       });
       if (profileError) {
-        await supabase.auth.signOut();
-        if (submitBtn) submitBtn.disabled = false;
-        return alert(`Login failed while preparing admin profile: ${profileError.message}`);
+        console.warn('Profile upsert failed, continuing with active Supabase session:', profileError.message || profileError);
       }
       const state = getState();
       await seedCloudWorkspaceFromLocal(supabase, state);
