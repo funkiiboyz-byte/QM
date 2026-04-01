@@ -1,9 +1,9 @@
-// Fill this with your Firebase Web app config from Firebase Console.
 window.MPQM_FIREBASE_CONFIG = {
-  apiKey: 'REPLACE_WITH_FIREBASE_API_KEY',
-  authDomain: 'REPLACE_WITH_FIREBASE_AUTH_DOMAIN',
-  projectId: 'REPLACE_WITH_FIREBASE_PROJECT_ID',
-  storageBucket: 'REPLACE_WITH_FIREBASE_STORAGE_BUCKET',
-  messagingSenderId: 'REPLACE_WITH_FIREBASE_MESSAGING_SENDER_ID',
-  appId: 'REPLACE_WITH_FIREBASE_APP_ID',
+  apiKey: 'AIzaSyAZbiH17ijO0Osg2AGIq7xedv829u6Key4',
+  authDomain: 'question-maker-895f3.firebaseapp.com',
+  projectId: 'question-maker-895f3',
+  storageBucket: 'question-maker-895f3.firebasestorage.app',
+  messagingSenderId: '638094853519',
+  appId: '1:638094853519:web:3f1ac5cadcf0cc8d2a77fa',
+  measurementId: 'G-L2WXLTSHWH',
 };
