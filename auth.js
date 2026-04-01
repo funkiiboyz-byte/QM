@@ -210,17 +210,37 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
+  function buildCloudStateSnapshot(sourceState) {
+    const snapshot = JSON.parse(JSON.stringify(sourceState || {}));
+    if (Array.isArray(snapshot.attempts)) {
+      snapshot.attempts = snapshot.attempts.map((attempt) => ({
+        ...attempt,
+        omrPreview: '',
+        omr_preview: '',
+      }));
+    }
+    let raw = JSON.stringify(snapshot);
+    if (raw.length > 2_000_000 && Array.isArray(snapshot.questions)) {
+      snapshot.questions = snapshot.questions.map((question) => ({
+        ...question,
+        image: '',
+      }));
+    }
+    return snapshot;
+  }
+
   async function seedCloudWorkspaceFromLocal(supabase, localState) {
     try {
       const { data } = await supabase.from('app_settings').select('workspace_data').eq('id', 1).maybeSingle();
       const hasCloud = data?.workspace_data && Object.keys(data.workspace_data || {}).length;
       if (hasCloud) return;
+      const cloudState = buildCloudStateSnapshot(localState);
       await supabase.from('app_settings').upsert({
         id: 1,
-        workspace_data: localState,
-        dark_mode: !!localState.settings?.darkMode,
-        print_config: localState.settings?.printConfig || {},
-        credentials: localState.credentials || {},
+        workspace_data: cloudState,
+        dark_mode: !!cloudState.settings?.darkMode,
+        print_config: cloudState.settings?.printConfig || {},
+        credentials: cloudState.credentials || {},
       });
     } catch {
       // ignore cloud seed issues

@@ -193,17 +193,50 @@
     }
   }
 
+  function buildCloudStateSnapshot(sourceState) {
+    const snapshot = JSON.parse(JSON.stringify(sourceState || {}));
+    if (Array.isArray(snapshot.attempts)) {
+      snapshot.attempts = snapshot.attempts.map((attempt) => ({
+        ...attempt,
+        omrPreview: '',
+        omr_preview: '',
+      }));
+    }
+    let raw = JSON.stringify(snapshot);
+    if (raw.length > 2_000_000 && Array.isArray(snapshot.questions)) {
+      snapshot.questions = snapshot.questions.map((question) => ({
+        ...question,
+        image: '',
+      }));
+      raw = JSON.stringify(snapshot);
+    }
+    if (raw.length > 4_000_000) {
+      console.warn('Cloud snapshot is very large. Keeping only minimal sync fields.');
+      return {
+        exams: snapshot.exams || [],
+        questions: snapshot.questions || [],
+        students: snapshot.students || [],
+        attempts: snapshot.attempts || [],
+        credentials: snapshot.credentials || {},
+        settings: snapshot.settings || {},
+        devices: snapshot.devices || [],
+      };
+    }
+    return snapshot;
+  }
+
   async function syncStateToCloud({ retries = 1 } = {}) {
+    const cloudState = buildCloudStateSnapshot(state);
     let lastError = null;
     for (let attempt = 1; attempt <= retries; attempt += 1) {
       try {
         const supabase = await ensureSupabaseClient();
         const { error } = await supabase.from('app_settings').upsert({
           id: 1,
-          workspace_data: state,
-          dark_mode: !!state.settings?.darkMode,
-          print_config: state.settings?.printConfig || {},
-          credentials: state.credentials || {},
+          workspace_data: cloudState,
+          dark_mode: !!cloudState.settings?.darkMode,
+          print_config: cloudState.settings?.printConfig || {},
+          credentials: cloudState.credentials || {},
         });
         if (error) throw error;
         return true;
