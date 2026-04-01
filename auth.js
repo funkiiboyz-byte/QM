@@ -5,7 +5,11 @@
   const SUPABASE_URL = 'https://qjwwsijubeiimoloeksa.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqd3dzaWp1YmVpaW1vbG9la3NhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjkyNTgsImV4cCI6MjA5MDU0NTI1OH0.TST4rsA7dM0HYIrgvoq05tZVUWd3RBF7IIYVWLeHbuU';
 
-  document.addEventListener('DOMContentLoaded', () => { init(); });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, { once: true });
+  } else {
+    init();
+  }
 
   async function waitForSession(supabase, retries = 5, delayMs = 200) {
     for (let attempt = 0; attempt < retries; attempt += 1) {
