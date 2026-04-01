@@ -93,7 +93,9 @@
     try {
       const supabase = await ensureSupabaseClient();
       const { data: { session } } = await supabase.auth.getSession();
+      const localSession = getSession();
       if (!session?.user) {
+        if (localSession?.role === 'admin') return true;
         window.location.href = 'admin-login.html';
         return false;
       }
@@ -113,11 +115,13 @@
       }
       if (role !== 'admin') {
         await supabase.auth.signOut();
+        if (localSession?.role === 'admin') return true;
         window.location.href = 'admin-login.html';
         return false;
       }
       return true;
     } catch {
+      if (getSession()?.role === 'admin') return true;
       window.location.href = 'admin-login.html';
       return false;
     }
