@@ -6,6 +6,15 @@
 
   document.addEventListener('DOMContentLoaded', () => { init(); });
 
+  async function waitForSession(supabase, retries = 5, delayMs = 200) {
+    for (let attempt = 0; attempt < retries; attempt += 1) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) return session;
+      if (attempt < retries - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    return null;
+  }
+
   function init() {
     redirectIfAdminAlreadyLoggedIn();
     bindAdminLogin();
@@ -48,8 +57,13 @@
         if (submitBtn) submitBtn.disabled = false;
         return alert('Invalid admin credentials.');
       }
+      const authSession = await waitForSession(supabase);
+      if (!authSession?.user) {
+        if (submitBtn) submitBtn.disabled = false;
+        return alert('Login session তৈরি হচ্ছে না। আবার login দিন।');
+      }
       const { error: profileError } = await supabase.from('profiles').upsert({
-        id: data.user.id,
+        id: authSession.user.id,
         role: 'admin',
         full_name: email.split('@')[0] || 'Admin',
       });

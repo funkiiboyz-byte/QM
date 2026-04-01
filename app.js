@@ -91,10 +91,19 @@
     return supabaseClientPromise;
   }
 
+  async function getSupabaseSessionWithRetry(supabase, retries = 5, delayMs = 250) {
+    for (let attempt = 0; attempt < retries; attempt += 1) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) return session;
+      if (attempt < retries - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    return null;
+  }
+
   async function ensureAdminAccess() {
     try {
       const supabase = await ensureSupabaseClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const session = await getSupabaseSessionWithRetry(supabase);
       if (!session?.user) {
         window.location.href = 'admin-login.html';
         return false;
