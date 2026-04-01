@@ -84,7 +84,13 @@
       supabaseClientPromise = ensureScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2')
         .then(() => {
           if (!window.supabase?.createClient) throw new Error('Supabase SDK not loaded.');
-          window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+          window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+            auth: {
+              persistSession: true,
+              autoRefreshToken: true,
+              detectSessionInUrl: true,
+            },
+          });
           return window.__supabaseClient;
         });
     }

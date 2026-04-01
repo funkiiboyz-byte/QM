@@ -71,10 +71,16 @@
       const email = form.querySelector('input[type="email"]').value.trim();
       const password = form.querySelector('input[type="password"]').value;
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      console.log('Admin login response:', {
+        hasUser: !!data?.user,
+        hasSession: !!data?.session,
+        error: error?.message || null,
+      });
       if (error || !data?.user) {
         if (submitBtn) submitBtn.disabled = false;
         return alert('Invalid admin credentials.');
       }
+      window.location.href = DASHBOARD_URL;
       const authSession = await waitForSession(supabase);
       if (!authSession?.user) {
         if (submitBtn) submitBtn.disabled = false;
@@ -225,7 +231,13 @@
     if (window.__supabaseClient) return window.__supabaseClient;
     await ensureScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
     if (!window.supabase?.createClient) throw new Error('Supabase SDK failed to load.');
-    window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    });
     return window.__supabaseClient;
   }
 
