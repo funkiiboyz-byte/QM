@@ -180,7 +180,7 @@
       Object.assign(state, merged);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
-      // fallback to local storage
+      console.warn('Cloud hydrate failed. Using local workspace.');
     }
   }
 
@@ -195,7 +195,7 @@
         credentials: state.credentials || {},
       });
     } catch {
-      // ignore cloud sync errors in offline mode
+      console.warn('Cloud sync failed. Data kept locally.');
     }
   }
   function getSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } }
@@ -273,9 +273,35 @@
   function renderGlobalMeta() {
     const sessionBadge = document.getElementById('sessionBadge');
     const storageBadge = document.getElementById('storageBadge');
+    const adminNavLink = document.getElementById('navAdminLogin');
     const session = getSession();
     if (sessionBadge) sessionBadge.textContent = session ? `${session.role} session active` : 'No active admin session';
     if (storageBadge) storageBadge.textContent = `${state.exams.length} exams · ${state.questions.length} questions · ${state.students.length} students`;
+    if (adminNavLink) {
+      if (session?.role === 'admin') {
+        adminNavLink.textContent = 'Logout';
+        adminNavLink.href = '#';
+        adminNavLink.onclick = async (event) => {
+          event.preventDefault();
+          await logoutAdminSession();
+        };
+      } else {
+        adminNavLink.textContent = 'Admin Login';
+        adminNavLink.href = 'admin-login.html';
+        adminNavLink.onclick = null;
+      }
+    }
+  }
+
+  async function logoutAdminSession() {
+    try {
+      const supabase = await ensureSupabaseClient();
+      await supabase.auth.signOut();
+    } catch {
+      // ignore cloud signout failures
+    }
+    localStorage.removeItem(SESSION_KEY);
+    window.location.href = 'admin-login.html';
   }
 
   function initDashboard() {
