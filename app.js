@@ -3,8 +3,14 @@
   const SESSION_KEY = 'megaprep-session-v1';
   const OPENAI_KEY_STORAGE = 'megaprep-openai-key-v1';
   const OPENAI_MODEL_STORAGE = 'megaprep-openai-model-v1';
-  const SUPABASE_URL = 'https://qjwwsijubeiimoloeksa.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqd3dzaWp1YmVpaW1vbG9la3NhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjkyNTgsImV4cCI6MjA5MDU0NTI1OH0.TST4rsA7dM0HYIrgvoq05tZVUWd3RBF7IIYVWLeHbuU';
+  const FIREBASE_CONFIG = window.MPQM_FIREBASE_CONFIG || {
+    apiKey: '',
+    authDomain: '',
+    projectId: '',
+    storageBucket: '',
+    messagingSenderId: '',
+    appId: '',
+  };
   const CURRICULUM = window.MEGAPREP_CURRICULUM || {};
   const defaultState = {
     exams: [],
@@ -46,7 +52,7 @@
   let selectedQuestionExamId = '';
   let editingQuestionId = '';
   let selectedManageExamId = '';
-  let supabaseClientPromise = null;
+  let firebaseClientPromise = null;
   let cloudSaveTimer = null;
   let cloudLifecycleBound = false;
 
@@ -80,29 +86,28 @@
     }
   }
 
-  async function ensureSupabaseClient() {
-    if (window.__supabaseClient) return window.__supabaseClient;
-    if (!supabaseClientPromise) {
-      supabaseClientPromise = ensureScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2')
-        .then(() => {
-          if (!window.supabase?.createClient) throw new Error('Supabase SDK not loaded.');
-          window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-            auth: {
-              persistSession: true,
-              autoRefreshToken: true,
-              detectSessionInUrl: true,
-            },
-          });
-          return window.__supabaseClient;
-        });
+  async function ensureFirebaseClient() {
+    if (window.__firebaseClient) return window.__firebaseClient;
+    if (!firebaseClientPromise) {
+      firebaseClientPromise = Promise.all([
+        ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js'),
+        ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js'),
+        ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js'),
+      ]).then(() => {
+        if (!window.firebase?.initializeApp) throw new Error('Firebase SDK not loaded.');
+        if (!FIREBASE_CONFIG.apiKey || !FIREBASE_CONFIG.projectId) throw new Error('Firebase config missing. Set window.MPQM_FIREBASE_CONFIG.');
+        const app = window.firebase.apps?.length ? window.firebase.app() : window.firebase.initializeApp(FIREBASE_CONFIG);
+        window.__firebaseClient = { app, auth: window.firebase.auth(), db: window.firebase.firestore() };
+        return window.__firebaseClient;
+      });
     }
-    return supabaseClientPromise;
+    return firebaseClientPromise;
   }
 
-  async function getSupabaseSessionWithRetry(supabase, retries = 5, delayMs = 250) {
+  async function getFirebaseUserWithRetry(auth, retries = 5, delayMs = 250) {
     for (let attempt = 0; attempt < retries; attempt += 1) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) return session;
+      const user = auth.currentUser;
+      if (user) return user;
       if (attempt < retries - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     return null;
@@ -110,15 +115,15 @@
 
   async function ensureAdminAccess() {
     try {
-      const supabase = await ensureSupabaseClient();
-      const session = await getSupabaseSessionWithRetry(supabase);
-      if (!session?.user) return true;
-      supabase.from('profiles').upsert({
-        id: session.user.id,
+      const { auth, db } = await ensureFirebaseClient();
+      const user = await getFirebaseUserWithRetry(auth);
+      if (!user) return true;
+      db.collection('profiles').doc(user.uid).set({
         role: 'admin',
-        full_name: session.user.email?.split('@')[0] || 'Admin',
-      }).then(({ error: profileError }) => {
-        if (profileError) console.warn('Profile upsert warning:', profileError.message || profileError);
+        full_name: user.email?.split('@')[0] || 'Admin',
+        updated_at: new Date().toISOString(),
+      }, { merge: true }).catch((error) => {
+        console.warn('Profile upsert warning:', error?.message || error);
       });
       return true;
     } catch {
@@ -171,20 +176,15 @@
 
   async function hydrateStateFromCloud() {
     try {
-      const supabase = await ensureSupabaseClient();
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('workspace_data')
-        .eq('id', 1)
-        .maybeSingle();
-      if (error) throw error;
-      const cloudData = data?.workspace_data || null;
+      const { db } = await ensureFirebaseClient();
+      const doc = await db.collection('app_settings').doc('workspace').get();
+      const cloudData = doc.exists ? (doc.data()?.workspace_data || null) : null;
       const localHasData = !!(state.exams?.length || state.questions?.length || state.students?.length || state.attempts?.length);
       if (!cloudData || !Object.keys(cloudData).length) {
         if (localHasData) await syncStateToCloud({ retries: 3 });
         return;
       }
-      const merged = mergeState(data.workspace_data);
+      const merged = mergeState(cloudData);
       Object.keys(state).forEach((key) => { delete state[key]; });
       Object.assign(state, merged);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -230,15 +230,14 @@
     let lastError = null;
     for (let attempt = 1; attempt <= retries; attempt += 1) {
       try {
-        const supabase = await ensureSupabaseClient();
-        const { error } = await supabase.from('app_settings').upsert({
-          id: 1,
+        const { db } = await ensureFirebaseClient();
+        await db.collection('app_settings').doc('workspace').set({
           workspace_data: cloudState,
           dark_mode: !!cloudState.settings?.darkMode,
           print_config: cloudState.settings?.printConfig || {},
           credentials: cloudState.credentials || {},
-        });
-        if (error) throw error;
+          updated_at: new Date().toISOString(),
+        }, { merge: true });
         return true;
       } catch (err) {
         lastError = err;
@@ -349,8 +348,8 @@
 
   async function logoutAdminSession() {
     try {
-      const supabase = await ensureSupabaseClient();
-      await supabase.auth.signOut();
+      const { auth } = await ensureFirebaseClient();
+      await auth.signOut();
     } catch {
       // ignore cloud signout failures
     }

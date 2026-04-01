@@ -2,8 +2,14 @@
   const STORAGE_KEY = 'megaprep-cms-state-v2';
   const SESSION_KEY = 'megaprep-session-v1';
   const DASHBOARD_URL = 'index.html';
-  const SUPABASE_URL = 'https://qjwwsijubeiimoloeksa.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqd3dzaWp1YmVpaW1vbG9la3NhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjkyNTgsImV4cCI6MjA5MDU0NTI1OH0.TST4rsA7dM0HYIrgvoq05tZVUWd3RBF7IIYVWLeHbuU';
+  const FIREBASE_CONFIG = window.MPQM_FIREBASE_CONFIG || {
+    apiKey: '',
+    authDomain: '',
+    projectId: '',
+    storageBucket: '',
+    messagingSenderId: '',
+    appId: '',
+  };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init, { once: true });
@@ -11,10 +17,10 @@
     init();
   }
 
-  async function waitForSession(supabase, retries = 5, delayMs = 200) {
+  async function waitForSession(auth, retries = 5, delayMs = 200) {
     for (let attempt = 0; attempt < retries; attempt += 1) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) return session;
+      const user = auth.currentUser;
+      if (user) return user;
       if (attempt < retries - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     return null;
@@ -31,14 +37,12 @@
 
   function bindSupabaseAuthRedirect() {
     if (!/admin-login\.html|admin-signup\.html/.test(window.location.pathname)) return;
-    ensureSupabaseClient()
-      .then((supabase) => {
-        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-          if (event === 'SIGNED_IN' && session?.user) {
-            window.location.replace(DASHBOARD_URL);
-          }
+    ensureFirebaseClient()
+      .then(({ auth }) => {
+        const unsubscribe = auth.onAuthStateChanged((user) => {
+          if (user) window.location.replace(DASHBOARD_URL);
         });
-        window.addEventListener('beforeunload', () => authListener?.subscription?.unsubscribe(), { once: true });
+        window.addEventListener('beforeunload', () => unsubscribe?.(), { once: true });
       })
       .catch(() => {
         // ignore listener wiring failure
@@ -48,10 +52,11 @@
   async function redirectIfAdminAlreadyLoggedIn() {
     if (!/admin-login\.html|admin-signup\.html/.test(window.location.pathname)) return;
     try {
-      const supabase = await ensureSupabaseClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) return;
-      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
+      const { auth, db } = await ensureFirebaseClient();
+      const user = auth.currentUser;
+      if (!user) return;
+      const profileDoc = await db.collection('profiles').doc(user.uid).get();
+      const profile = profileDoc.exists ? profileDoc.data() : null;
       if (profile?.role === 'admin') window.location.replace(DASHBOARD_URL);
     } catch {
       // ignore
@@ -65,38 +70,37 @@
       event.preventDefault();
       const submitBtn = form.querySelector('button[type="submit"]');
       if (submitBtn) submitBtn.disabled = true;
-      let supabase;
+      let firebaseClient;
       try {
-        supabase = await ensureSupabaseClient();
+        firebaseClient = await ensureFirebaseClient();
       } catch {
         if (submitBtn) submitBtn.disabled = false;
-        return alert('Supabase সংযোগ হচ্ছে না। Admin login এর জন্য internet/Supabase connection লাগবে।');
+        return alert('Firebase সংযোগ হচ্ছে না। Admin login এর জন্য internet লাগবে।');
       }
       const email = form.querySelector('input[type="email"]').value.trim();
       const password = form.querySelector('input[type="password"]').value;
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      console.log('Admin login response:', {
-        hasUser: !!data?.user,
-        hasSession: !!data?.session,
-        error: error?.message || null,
-      });
-      if (error || !data?.user) {
+      let credential;
+      try {
+        credential = await firebaseClient.auth.signInWithEmailAndPassword(email, password);
+      } catch (error) {
         if (submitBtn) submitBtn.disabled = false;
         return alert('Invalid admin credentials.');
       }
+      const user = credential?.user || null;
+      console.log('Admin login response:', { hasUser: !!user, error: null });
       const state = getState();
-      await seedCloudWorkspaceFromLocal(supabase, state);
+      await seedCloudWorkspaceFromLocal(firebaseClient, state);
       const session = createSession('admin', email || 'admin');
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       saveDevice(state, session);
-      const authSession = await waitForSession(supabase);
-      if (authSession?.user) {
-        supabase.from('profiles').upsert({
-          id: authSession.user.id,
+      const authUser = await waitForSession(firebaseClient.auth);
+      if (authUser) {
+        firebaseClient.db.collection('profiles').doc(authUser.uid).set({
           role: 'admin',
           full_name: email.split('@')[0] || 'Admin',
-        }).then(({ error: profileError }) => {
-          if (profileError) console.warn('Profile upsert failed, continuing with active session:', profileError.message || profileError);
+          updated_at: new Date().toISOString(),
+        }, { merge: true }).catch((profileError) => {
+          console.warn('Profile upsert failed, continuing with active session:', profileError?.message || profileError);
         });
       }
       window.location.replace(DASHBOARD_URL);
@@ -108,11 +112,11 @@
     if (!form) return;
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      let supabase;
+      let firebaseClient;
       try {
-        supabase = await ensureSupabaseClient();
+        firebaseClient = await ensureFirebaseClient();
       } catch {
-        return alert('Supabase সংযোগ হচ্ছে না। কিছুক্ষণ পর আবার চেষ্টা করুন।');
+        return alert('Firebase সংযোগ হচ্ছে না। কিছুক্ষণ পর আবার চেষ্টা করুন।');
       }
       const inputs = form.querySelectorAll('input');
       const payload = {
@@ -123,12 +127,15 @@
         phone: inputs[3].value.trim(),
         password: inputs[4].value,
       };
-      const { data, error } = await supabase.auth.signUp({ email: payload.email, password: payload.password });
-      if (error || !data?.user) return alert(error?.message || 'Failed to create admin account.');
+      try {
+        await firebaseClient.auth.createUserWithEmailAndPassword(payload.email, payload.password);
+      } catch (error) {
+        return alert(error?.message || 'Failed to create admin account.');
+      }
       const state = getState();
       state.credentials.admins.push(payload);
       saveState(state);
-      alert('Admin auth account created. Set this user as admin in Supabase profiles table, then login.');
+      alert('Admin account created in Firebase Auth. এখন login করুন।');
       window.location.href = 'admin-login.html';
     });
   }
@@ -229,36 +236,35 @@
     return snapshot;
   }
 
-  async function seedCloudWorkspaceFromLocal(supabase, localState) {
+  async function seedCloudWorkspaceFromLocal(firebaseClient, localState) {
     try {
-      const { data } = await supabase.from('app_settings').select('workspace_data').eq('id', 1).maybeSingle();
-      const hasCloud = data?.workspace_data && Object.keys(data.workspace_data || {}).length;
+      const doc = await firebaseClient.db.collection('app_settings').doc('workspace').get();
+      const cloudData = doc.exists ? (doc.data()?.workspace_data || null) : null;
+      const hasCloud = cloudData && Object.keys(cloudData || {}).length;
       if (hasCloud) return;
       const cloudState = buildCloudStateSnapshot(localState);
-      await supabase.from('app_settings').upsert({
-        id: 1,
+      await firebaseClient.db.collection('app_settings').doc('workspace').set({
         workspace_data: cloudState,
         dark_mode: !!cloudState.settings?.darkMode,
         print_config: cloudState.settings?.printConfig || {},
         credentials: cloudState.credentials || {},
-      });
+        updated_at: new Date().toISOString(),
+      }, { merge: true });
     } catch {
       // ignore cloud seed issues
     }
   }
 
-  async function ensureSupabaseClient() {
-    if (window.__supabaseClient) return window.__supabaseClient;
-    await ensureScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
-    if (!window.supabase?.createClient) throw new Error('Supabase SDK failed to load.');
-    window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    });
-    return window.__supabaseClient;
+  async function ensureFirebaseClient() {
+    if (window.__firebaseClient) return window.__firebaseClient;
+    await ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+    await ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js');
+    await ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js');
+    if (!window.firebase?.initializeApp) throw new Error('Firebase SDK failed to load.');
+    if (!FIREBASE_CONFIG.apiKey || !FIREBASE_CONFIG.projectId) throw new Error('Firebase config missing. Set window.MPQM_FIREBASE_CONFIG.');
+    const app = window.firebase.apps?.length ? window.firebase.app() : window.firebase.initializeApp(FIREBASE_CONFIG);
+    window.__firebaseClient = { app, auth: window.firebase.auth(), db: window.firebase.firestore() };
+    return window.__firebaseClient;
   }
 
   function ensureScript(src) {
