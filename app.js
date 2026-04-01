@@ -3,6 +3,8 @@
   const SESSION_KEY = 'megaprep-session-v1';
   const OPENAI_KEY_STORAGE = 'megaprep-openai-key-v1';
   const OPENAI_MODEL_STORAGE = 'megaprep-openai-model-v1';
+  const SUPABASE_URL = 'https://qjwwsijubeiimoloeksa.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqd3dzaWp1YmVpaW1vbG9la3NhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjkyNTgsImV4cCI6MjA5MDU0NTI1OH0.TST4rsA7dM0HYIrgvoq05tZVUWd3RBF7IIYVWLeHbuU';
   const CURRICULUM = window.MEGAPREP_CURRICULUM || {};
   const defaultState = {
     exams: [],
@@ -44,10 +46,16 @@
   let selectedQuestionExamId = '';
   let editingQuestionId = '';
   let selectedManageExamId = '';
+  let supabaseClientPromise = null;
 
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => { init(); });
 
-  function init() {
+  async function init() {
+    const currentPage = document.body.dataset.page || '';
+    if (currentPage !== 'solution-download') {
+      const allowed = await ensureAdminAccess();
+      if (!allowed) return;
+    }
     bindThemeToggle();
     bindExportImport();
     ensureCurrentDevice();
@@ -57,6 +65,7 @@
       case 'create-exam': initCreateExamPage(); break;
       case 'question-bank': initQuestionBankPage(); break;
       case 'handle-exams': initHandleExamsPage(); break;
+      case 'solution-download': initSolutionDownloadPage(); break;
       case 'students': initStudentsPage(); break;
       case 'result-analyse': initResultAnalysePage(); break;
       case 'student-profile': initStudentProfilePage(); break;
@@ -64,6 +73,57 @@
       case 'devices': initDevicesPage(); break;
       case 'passwords': initPasswordsPage(); break;
       default: break;
+    }
+  }
+
+  async function ensureSupabaseClient() {
+    if (window.__supabaseClient) return window.__supabaseClient;
+    if (!supabaseClientPromise) {
+      supabaseClientPromise = ensureScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2')
+        .then(() => {
+          if (!window.supabase?.createClient) throw new Error('Supabase SDK not loaded.');
+          window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+          return window.__supabaseClient;
+        });
+    }
+    return supabaseClientPromise;
+  }
+
+  async function ensureAdminAccess() {
+    try {
+      const supabase = await ensureSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const localSession = getSession();
+      if (!session?.user) {
+        if (localSession?.role === 'admin') return true;
+        window.location.href = 'admin-login.html';
+        return false;
+      }
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .maybeSingle();
+      let role = profile?.role || '';
+      if (!role) {
+        const { error: profileInsertError } = await supabase.from('profiles').upsert({
+          id: session.user.id,
+          role: 'admin',
+          full_name: session.user.email?.split('@')[0] || 'Admin',
+        });
+        if (!profileInsertError) role = 'admin';
+      }
+      if (role !== 'admin') {
+        await supabase.auth.signOut();
+        if (localSession?.role === 'admin') return true;
+        window.location.href = 'admin-login.html';
+        return false;
+      }
+      return true;
+    } catch {
+      if (getSession()?.role === 'admin') return true;
+      window.location.href = 'admin-login.html';
+      return false;
     }
   }
 
@@ -883,15 +943,16 @@
       const normalized = items.map((item) => normalizeImportedQuestion(item, defaults)).filter(Boolean);
       if (!normalized.length) return '<div class="preview-block"><p>Could not build preview from provided JSON.</p></div>';
       const blocks = normalized.map((question, index) => {
+        const displaySubject = question.subject || defaults.subject || '';
         if (question.type === 'cq') {
-          const subs = (question.subQuestions || []).map((sub) => `<li><strong>${escapeHtml(sub.label || '')}.</strong> ${formatMathForDisplay(sub.prompt || '')}<br/><span class="muted-copy">Answer: ${formatMathForDisplay(sub.answer || '')}</span></li>`).join('');
-          return `<div class="preview-sub"><strong>Q${index + 1}. ${formatMathForDisplay(question.stimulus || '')}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="CQ" />` : ''}<ul>${subs || '<li>No sub-questions found.</li>'}</ul></div>`;
+          const subs = (question.subQuestions || []).map((sub) => `<li><strong>${escapeHtml(sub.label || '')}.</strong> ${formatMathForDisplay(sub.prompt || '', { subject: displaySubject })}<br/><span class="muted-copy">Answer: ${formatMathForDisplay(sub.answer || '', { subject: displaySubject })}</span></li>`).join('');
+          return `<div class="preview-sub"><strong>Q${index + 1}. ${formatMathForDisplay(question.stimulus || '', { subject: displaySubject })}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="CQ" />` : ''}<ul>${subs || '<li>No sub-questions found.</li>'}</ul></div>`;
         }
         const options = (question.options || []).map((option, optionIndex) => {
           const isCorrect = optionIndex === question.correct;
-          return `<li>${String.fromCharCode(65 + optionIndex)}. ${formatMathForDisplay(option)}${isCorrect ? ' <strong>(Correct)</strong>' : ''}</li>`;
+          return `<li>${String.fromCharCode(65 + optionIndex)}. ${formatMathForDisplay(option, { subject: displaySubject })}${isCorrect ? ' <strong>(Correct)</strong>' : ''}</li>`;
         }).join('');
-        return `<div class="preview-sub"><strong>Q${index + 1}. ${formatMathForDisplay(question.question || '')}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="MCQ" />` : ''}<ol>${options || '<li>No options found.</li>'}</ol>${question.explanation ? `<p><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation)}</p>` : ''}</div>`;
+        return `<div class="preview-sub"><strong>Q${index + 1}. ${formatMathForDisplay(question.question || '', { subject: displaySubject })}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="MCQ" />` : ''}<ol>${options || '<li>No options found.</li>'}</ol>${question.explanation ? `<p><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : ''}</div>`;
       }).join('');
       return `<div class="preview-block"><p>JSON Preview (${normalized.length} question${normalized.length > 1 ? 's' : ''})</p>${blocks}</div>`;
     } catch (error) {
@@ -1075,7 +1136,7 @@
       holder.innerHTML = '<p class="muted-copy">Select an exam to use Edit/Publish/Download/Print actions.</p>';
       return;
     }
-    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
+    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
     holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', () => {
       const item = findExam(exam.id);
       if (!item) return showToast('Exam not found.', 'error');
@@ -1108,6 +1169,16 @@
     holder.querySelector('[data-sidebar-download]')?.addEventListener('click', () => downloadExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print]')?.addEventListener('click', () => printExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print-omr]')?.addEventListener('click', () => printOmrSheet(exam.id));
+    holder.querySelector('[data-sidebar-solution-publish]')?.addEventListener('click', () => {
+      const item = findExam(exam.id);
+      if (!item) return showToast('Exam not found.', 'error');
+      item.solutionPublished = !item.solutionPublished;
+      if (item.solutionPublished) item.solutionPublishedAt = new Date().toISOString();
+      else delete item.solutionPublishedAt;
+      saveState();
+      renderExamManager();
+      showToast(item.solutionPublished ? 'Solution link published.' : 'Solution link unpublished.');
+    });
   }
 
   function renderResultAnalyzer(exam) {
@@ -1268,6 +1339,19 @@
       return digits.join('').replace(/\s+/g, '');
     };
     const roll = detectColumnDigits(1800, 980, 6, 24, 36);
+    const detectSetCode = () => {
+      const labels = ['A', 'B', 'C', 'D'];
+      let best = '';
+      let bestScore = -1;
+      labels.forEach((label, idx) => {
+        const score = bubbleFillScore(1888 + (idx * 44), 1640, 7, 12);
+        if (score > bestScore) {
+          bestScore = score;
+          best = label;
+        }
+      });
+      return bestScore > 12 ? best : '';
+    };
     const answers = [];
     const startX = 285;
     const startY = 980;
@@ -1294,7 +1378,8 @@
         answers.push(bestScore > 14 ? bestLabel : '');
       }
     }
-    return { roll, answers };
+    const setCode = detectSetCode();
+    return { roll, answers, setCode };
   }
 
   function evaluateDetectedAnswers(answerKey, markedAnswers) {
@@ -1352,6 +1437,75 @@
     const fileInput = document.getElementById('resultOmrImages');
     const preview = document.getElementById('resultOmrPreview');
     if (!examSelect || !processBtn || !exportBtn || !output || !fileInput || !preview) return;
+    let omrDrafts = [];
+    let omrSearch = '';
+    const getFileKey = (file) => `${file.name}__${file.size}__${file.lastModified}`;
+    const renderDraftCards = () => {
+      if (!omrDrafts.length) {
+        preview.innerHTML = '<p class="muted-copy">No OMR image selected yet.</p>';
+        return;
+      }
+      const studentMap = buildStudentRollMap();
+      const filtered = omrDrafts.filter((item) => {
+        const roll = String(item.editedRoll || '').toLowerCase();
+        const student = studentMap.get(item.editedRoll || '') || {};
+        const name = String(item.editedName || student.name || '').toLowerCase();
+        const setCode = String(item.editedSet || '').toLowerCase();
+        const fileName = String(item.file.name || '').toLowerCase();
+        const query = omrSearch.toLowerCase();
+        if (!query) return true;
+        return roll.includes(query) || name.includes(query) || setCode.includes(query) || fileName.includes(query);
+      });
+      preview.innerHTML = `<label>Search OMR / Roll / Name / Set<input id="omrPreviewSearchInput" type="search" value="${escapeAttr(omrSearch)}" placeholder="Search by roll, name, set, file" /></label><div class="omr-preview-grid">${filtered.map((item, index) => {
+        const student = studentMap.get(item.editedRoll || '') || {};
+        return `<article class="entity-card entity-card--stacked"><div><h4>OMR ${index + 1}</h4><p class="muted-copy">${escapeHtml(item.file.name)}</p><div class="field-row"><label>Set<input type="text" data-set-edit="${escapeAttr(item.key)}" value="${escapeAttr(item.editedSet || '')}" /></label><label>Roll<input type="text" data-roll-edit="${escapeAttr(item.key)}" value="${escapeAttr(item.editedRoll || '')}" /></label></div><label>Name<input type="text" data-name-edit="${escapeAttr(item.key)}" value="${escapeAttr(item.editedName || student.name || '')}" /></label></div><img src="${item.previewUrl}" alt="OMR preview ${index + 1}" style="width:100%;max-height:220px;object-fit:contain;border:1px solid #d8dee9;border-radius:12px;background:#fff;" /></article>`;
+      }).join('')}</div>`;
+      preview.querySelector('#omrPreviewSearchInput')?.addEventListener('input', (event) => {
+        omrSearch = event.target.value || '';
+        renderDraftCards();
+      });
+      preview.querySelectorAll('[data-roll-edit]').forEach((input) => input.addEventListener('input', (event) => {
+        const draft = omrDrafts.find((item) => item.key === event.target.dataset.rollEdit);
+        if (!draft) return;
+        draft.editedRoll = String(event.target.value || '').trim();
+      }));
+      preview.querySelectorAll('[data-set-edit]').forEach((input) => input.addEventListener('input', (event) => {
+        const draft = omrDrafts.find((item) => item.key === event.target.dataset.setEdit);
+        if (!draft) return;
+        draft.editedSet = String(event.target.value || '').trim().toUpperCase();
+      }));
+      preview.querySelectorAll('[data-name-edit]').forEach((input) => input.addEventListener('input', (event) => {
+        const draft = omrDrafts.find((item) => item.key === event.target.dataset.nameEdit);
+        if (!draft) return;
+        draft.editedName = String(event.target.value || '').trim();
+      }));
+    };
+
+    const syncOmrDrafts = async () => {
+      const files = [...(fileInput.files || [])];
+      if (!files.length) {
+        omrDrafts = [];
+        renderDraftCards();
+        return;
+      }
+      const exam = findExam(examSelect.value);
+      const answerCount = exam ? deriveStaticAnswerKey(exam).length : 60;
+      omrDrafts = [];
+      for (const file of files) {
+        const detected = await detectOmrFromImage(file, answerCount);
+        omrDrafts.push({
+          key: getFileKey(file),
+          file,
+          previewUrl: URL.createObjectURL(file),
+          detectedRoll: detected.roll || '',
+          editedRoll: detected.roll || '',
+          detectedSet: detected.setCode || '',
+          editedSet: detected.setCode || '',
+          editedName: '',
+        });
+      }
+      renderDraftCards();
+    };
     const params = new URLSearchParams(window.location.search);
     const preselected = params.get('examId') || '';
     examSelect.innerHTML = state.exams.length
@@ -1364,13 +1518,19 @@
         output.innerHTML = '<p class="muted-copy">Exam select করুন এবং OMR images upload করুন।</p>';
         return;
       }
+      const rollOverrides = new Map(omrDrafts.map((item) => [item.key, {
+        roll: item.editedRoll || item.detectedRoll || '',
+        setCode: item.editedSet || item.detectedSet || '',
+        student_name: item.editedName || '',
+      }]));
       output.innerHTML = '<p class="muted-copy">Processing OMR images...</p>';
-      const rows = await analyseOmrBatchForExam(examId, files);
+      const rows = await analyseOmrBatchForExam(examId, files, rollOverrides);
       window.__latestOmrBatchResult = rows;
       output.innerHTML = renderClassWiseResultTable(rows);
     });
     exportBtn.addEventListener('click', exportLatestResultWorkbook);
-    fileInput.addEventListener('change', () => renderOmrUploadPreview(fileInput.files, preview));
+    examSelect.addEventListener('change', syncOmrDrafts);
+    fileInput.addEventListener('change', syncOmrDrafts);
   }
 
   function renderOmrUploadPreview(files, target) {
@@ -1385,15 +1545,20 @@
     }).join('')}</div>`;
   }
 
-  async function analyseOmrBatchForExam(examId, imageFiles) {
+  async function analyseOmrBatchForExam(examId, imageFiles, rollOverrides = new Map()) {
     const exam = findExam(examId);
     if (!exam) return [];
     const answerKey = deriveStaticAnswerKey(exam);
     const studentMap = buildStudentRollMap();
     const rows = [];
+    const getFileKey = (file) => `${file.name}__${file.size}__${file.lastModified}`;
     for (const file of imageFiles) {
       const detected = await detectOmrFromImage(file, answerKey.length);
-      const student = studentMap.get(detected.roll) || {};
+      const override = rollOverrides.get(getFileKey(file));
+      const finalRoll = typeof override === 'string' ? override : (override?.roll || detected.roll || '');
+      const finalSet = typeof override === 'object' ? (override?.setCode || detected.setCode || '') : (detected.setCode || '');
+      const student = studentMap.get(finalRoll) || {};
+      const finalName = (typeof override === 'object' && override?.student_name) ? override.student_name : (student.name || '');
       const evaluated = evaluateDetectedAnswers(answerKey, detected.answers);
       const breakdown = buildAnswerBreakdown(answerKey, detected.answers);
       if (student.id) {
@@ -1408,12 +1573,14 @@
           studentAnswers: detected.answers,
           answerBreakdown: breakdown,
           omrPreview: preview,
+          omrSet: finalSet,
           createdAt: new Date().toISOString(),
         });
       }
       rows.push({
-        roll: detected.roll || '',
-        student_name: student.name || '',
+        set: finalSet,
+        roll: finalRoll,
+        student_name: finalName,
         class: student.className || student.course || 'Unknown',
         institute: student.institute || '',
         phone_number: student.phone || '',
@@ -1454,7 +1621,7 @@
       acc[key].push(row);
       return acc;
     }, {});
-    return Object.entries(grouped).map(([className, items]) => `<h4>Class: ${escapeHtml(className)}</h4><div class="table-wrap"><table><thead><tr><th>Merit</th><th>Roll</th><th>Name</th><th>Institute</th><th>Phone</th><th>Correct</th><th>Wrong</th><th>Not Answered</th><th>Total</th><th>%</th></tr></thead><tbody>${items.map((item) => `<tr><td>${item.merit_position}</td><td>${escapeHtml(item.roll)}</td><td>${escapeHtml(item.student_name)}</td><td>${escapeHtml(item.institute)}</td><td>${escapeHtml(item.phone_number)}</td><td>${item.correct}</td><td>${item.wrong}</td><td>${item.not_answered}</td><td>${item.total}</td><td>${item.percent}</td></tr>`).join('')}</tbody></table></div>`).join('');
+    return Object.entries(grouped).map(([className, items]) => `<h4>Class: ${escapeHtml(className)}</h4><div class="table-wrap"><table><thead><tr><th>Merit</th><th>Set</th><th>Roll</th><th>Name</th><th>Institute</th><th>Phone</th><th>Correct</th><th>Wrong</th><th>Not Answered</th><th>Total</th><th>%</th></tr></thead><tbody>${items.map((item) => `<tr><td>${item.merit_position}</td><td>${escapeHtml(item.set || '')}</td><td>${escapeHtml(item.roll)}</td><td>${escapeHtml(item.student_name)}</td><td>${escapeHtml(item.institute)}</td><td>${escapeHtml(item.phone_number)}</td><td>${item.correct}</td><td>${item.wrong}</td><td>${item.not_answered}</td><td>${item.total}</td><td>${item.percent}</td></tr>`).join('')}</tbody></table></div>`).join('');
   }
 
   function getQuestionFilters() {
@@ -1467,7 +1634,11 @@
     };
   }
 
-  function buildExamPaperHtml(examId) {
+  function buildExamPaperHtml(examId, options = {}) {
+    const includeSolutionQr = options.includeSolutionQr !== false;
+    const forceAnswers = options.forceAnswers === true;
+    const forceExplanation = options.forceExplanation === true;
+    const disableAnswerSheet = options.disableAnswerSheet === true;
     const exam = findExam(examId);
     if (!exam) {
       return '<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Exam Not Found</title></head><body><p>Exam not found.</p></body></html>';
@@ -1486,21 +1657,25 @@
     for (let setIndex = 0; setIndex < safeSetCount; setIndex += 1) {
       const { setQuestions, answerKey } = buildQuestionSet(questions, config);
       const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${String.fromCharCode(65 + setIndex)}`;
+      const solutionUrl = getSolutionPublicUrl(exam.id);
+      const qrPayload = encodeURIComponent(solutionUrl);
+      const qrBlock = includeSolutionQr ? `<div class="solution-qr solution-qr--paper"><img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${qrPayload}" alt="Solution Download QR" /><span class="solution-qr__hint">Solution QR</span></div>` : '';
       const list = setQuestions.map((question, index) => {
         const number = `${index + 1}`;
+        const displaySubject = question.subject || exam.subject || '';
         const title = question.question || question.stimulus || '';
-        const body = question.type === 'cq'
-          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '')}${config.showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer || '')}</div>` : ''}</div>`).join('')
-          : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option)}</span></li>`).join('')}</ul>${config.showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '')}</p>` : ''}`;
-        const explanation = config.showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation)}</p>` : '';
-        const qrPayload = encodeURIComponent(`${title}\n\nAnswer: ${question.type === 'mcq' ? String.fromCharCode(65 + (question.correct || 0)) : ''}\nExplanation: ${question.explanation || ''}`);
-        const qrBlock = `<div class="solution-qr"><img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${qrPayload}" alt="Solution QR" /><span>Scan for solve + explanation</span></div>`;
-        return `<article class="print-question"><h3>${number}. ${formatMathForDisplay(title)}</h3>${body}${explanation}${qrBlock}</article>`;
+        const showAnswers = forceAnswers || config.showAnswers;
+        const showExplanation = forceExplanation || config.showExplanation;
+        const questionBody = question.type === 'cq'
+          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
+          : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span></li>`).join('')}</ul>${showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '', { subject: displaySubject })}</p>` : ''}`;
+        const explanation = showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
+        return `<article class="print-question"><h3>${number}. ${formatMathForDisplay(title, { subject: displaySubject })}</h3>${questionBody}${explanation}</article>`;
       }).join('');
 
-      setMarkup.push(`<section class="paper set-paper"><div class="board-head board-head--${escapeAttr(headerTheme)}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
+      setMarkup.push(`<section class="paper set-paper">${qrBlock}<div class="board-head board-head--${escapeAttr(headerTheme)}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
 
-      if (config.includeAnswerSheet) {
+      if (config.includeAnswerSheet && !disableAnswerSheet) {
         const omrRows = answerKey.map((item, idx) => {
           const mcq = item !== 'CQ';
           const bubble = (label) => `<span class="omr-bubble ${mcq && item === label ? 'is-correct' : ''}">${label}</span>`;
@@ -1510,7 +1685,51 @@
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{display:grid;grid-template-columns:repeat(${Math.max(1, Number(config.columns || 1))},minmax(0,1fr));gap:8px 14px;align-items:start}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 6px;border-bottom:1px solid #ddd}h3{font-size:14px;line-height:1.28;margin-bottom:4px}.option-list{list-style:none;padding-left:0;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:11px;color:#334155}.solution-qr img{width:54px;height:54px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{gap:6px 10px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:10px;top:10px;z-index:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{column-gap:10px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+  }
+
+  function getSolutionPublicUrl(examId) {
+    const baseUrl = `${window.location.origin}${window.location.pathname}`;
+    const url = new URL('solution-download.html', baseUrl);
+    url.searchParams.set('examId', examId);
+    return url.toString();
+  }
+
+  function buildSolutionPaperHtml(examId) {
+    return buildExamPaperHtml(examId, {
+      includeSolutionQr: false,
+      forceAnswers: true,
+      forceExplanation: true,
+      disableAnswerSheet: true,
+    });
+  }
+
+  function initSolutionDownloadPage() {
+    const target = document.getElementById('solutionDownloadPage');
+    const downloadBtn = document.getElementById('downloadSolutionBtn');
+    if (!target || !downloadBtn) return;
+    const examId = new URLSearchParams(window.location.search).get('examId') || '';
+    const exam = findExam(examId);
+    if (!exam) {
+      target.innerHTML = '<p class="muted-copy">Exam not found in local database. এই ডিভাইসে exam data import/publish করা না থাকলে solution download করা যাবে না।</p>';
+      downloadBtn.disabled = true;
+      return;
+    }
+    if (!exam.solutionPublished) {
+      target.innerHTML = `<h3>${escapeHtml(exam.title)}</h3><p class="muted-copy">Solution has not been published yet. Please contact your admin.</p>`;
+      downloadBtn.disabled = true;
+      return;
+    }
+    target.innerHTML = `<h3>${escapeHtml(exam.title)}</h3><p class="muted-copy">Solution is published. Tap the button below to download the solution paper.</p>`;
+    downloadBtn.disabled = false;
+    downloadBtn.addEventListener('click', () => {
+      const win = window.open('', '_blank', 'width=1100,height=780');
+      if (!win) return showToast('Popup blocked by browser.', 'error');
+      win.document.write(buildSolutionPaperHtml(examId));
+      win.document.close();
+      win.focus();
+      win.print();
+    });
   }
 
   function mergePrintConfig(config = {}) {
@@ -2024,6 +2243,86 @@
     XLSX.writeFile(book, className ? `${className.replace(/\s+/g, '-').toLowerCase()}-students.xlsx` : 'all-students.xlsx');
   }
 
+  function buildStudentProfileMarkup(studentId, selectedAttemptIds = [], activeAttemptId = '') {
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return '<p class="muted-copy">Student not found.</p>';
+    const attempts = state.attempts
+      .filter((attempt) => attempt.studentId === studentId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const selected = new Set(selectedAttemptIds);
+    const detailAttempt = attempts.find((attempt) => attempt.id === activeAttemptId) || attempts[0] || null;
+    const detailExam = detailAttempt ? findExam(detailAttempt.examId) : null;
+    const detailBreakdown = detailAttempt?.answerBreakdown || [];
+    const detailBreakdownMarkup = detailBreakdown.length
+      ? `<div class="table-wrap"><table class="result-table"><thead><tr><th>Q. No</th><th>Correct</th><th>Student</th><th>Status</th></tr></thead><tbody>${detailBreakdown.map((item) => `<tr><td>${item.qno}</td><td>${item.correct}</td><td>${item.marked}</td><td>${item.status}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="muted-copy">এই exam-এর answer breakdown পাওয়া যায়নি।</p>';
+    const detailOmr = detailAttempt?.omrPreview ? `<img src="${detailAttempt.omrPreview}" alt="OMR Preview" style="width:100%;max-height:260px;object-fit:contain;border:1px solid #cbd5e1;border-radius:10px;" />` : '<p class="muted-copy">No OMR image found for this exam.</p>';
+    const examRows = attempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td><input type="checkbox" data-attempt-select="${attempt.id}" ${selected.has(attempt.id) ? 'checked' : ''} /></td><td><button type="button" class="toolbar-button" data-attempt-view="${attempt.id}">Details</button></td><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
+    }).join('');
+    return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>Student Profile</h1><p>Exam List + Detailed Result View</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><h3>Given Exams</h3><p class="muted-copy">যে exam গুলো marksheet এ রাখতে চান সেগুলো checkbox দিয়ে select করুন।</p><div class="table-wrap"><table class="result-table"><thead><tr><th>Select</th><th>Details</th><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${examRows || '<tr><td colspan="6">No exam result yet.</td></tr>'}</tbody></table></div><h3>Selected Exam Details</h3>${detailAttempt ? `<p><strong>Exam:</strong> ${escapeHtml(detailExam?.title || detailAttempt.examId)} · <strong>Full Marks:</strong> ${detailAttempt.total} · <strong>Obtained:</strong> ${detailAttempt.score}</p>${detailOmr}<h4>Answer-wise Status</h4>${detailBreakdownMarkup}` : '<p class="muted-copy">কোনো exam attempt পাওয়া যায়নি।</p>'}</section>`;
+  }
+
+  function buildSelectedMarksheetMarkup(studentId, selectedAttemptIds = []) {
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return '<p>Student not found.</p>';
+    const selectedSet = new Set(selectedAttemptIds);
+    const selectedAttempts = state.attempts
+      .filter((attempt) => attempt.studentId === studentId && selectedSet.has(attempt.id))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const rows = selectedAttempts.map((attempt) => {
+      const exam = findExam(attempt.examId);
+      const highest = state.attempts
+        .filter((item) => item.examId === attempt.examId)
+        .reduce((max, item) => Math.max(max, Number(item.score || 0)), 0);
+      const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
+      return `<tr><td>${new Date(attempt.createdAt).toLocaleDateString()}</td><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.total}</td><td>${attempt.score}</td><td>${highest}</td><td>${pct}%</td></tr>`;
+    }).join('');
+    return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>MegaPrep Result Card</h1><p>Selected Exam Marksheet</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><div class="table-wrap"><table class="result-table"><thead><tr><th>Date</th><th>Exam Name</th><th>Full Marks</th><th>Obtained Mark</th><th>Highest Mark</th><th>Percentage</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No selected exam.</td></tr>'}</tbody></table></div></section>`;
+  }
+
+  function initStudentProfilePage() {
+    const target = document.getElementById('studentProfilePage');
+    const printBtn = document.getElementById('printStudentMarksheetBtn');
+    if (!target || !printBtn) return;
+    const studentId = new URLSearchParams(window.location.search).get('studentId') || '';
+    const attempts = state.attempts.filter((attempt) => attempt.studentId === studentId);
+    const selectedAttemptIds = new Set(attempts.map((attempt) => attempt.id));
+    let activeAttemptId = attempts[0]?.id || '';
+
+    const render = () => {
+      target.innerHTML = buildStudentProfileMarkup(studentId, [...selectedAttemptIds], activeAttemptId);
+      target.querySelectorAll('[data-attempt-select]').forEach((checkbox) => checkbox.addEventListener('change', () => {
+        if (checkbox.checked) selectedAttemptIds.add(checkbox.dataset.attemptSelect);
+        else selectedAttemptIds.delete(checkbox.dataset.attemptSelect);
+      }));
+      target.querySelectorAll('[data-attempt-view]').forEach((button) => button.addEventListener('click', () => {
+        activeAttemptId = button.dataset.attemptView || '';
+        render();
+      }));
+    };
+
+    render();
+    printBtn.textContent = 'Print Selected Marksheet (PDF)';
+    printBtn.addEventListener('click', async () => {
+      if (!selectedAttemptIds.size) return showToast('At least one exam must be selected.', 'error');
+      const win = window.open('', '_blank', 'width=1000,height=800');
+      if (!win) return showToast('Popup blocked by browser.', 'error');
+      let cssText = '';
+      try {
+        cssText = await fetch('styles.css').then((res) => res.text());
+      } catch {
+        cssText = '';
+      }
+      win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Selected Marksheet</title><style>${cssText}</style></head><body>${buildSelectedMarksheetMarkup(studentId, [...selectedAttemptIds])}</body></html>`);
+      win.document.close();
+      win.focus();
+      win.print();
+    });
+  }
+
   function initAnalyticsPage() {
     document.getElementById('attemptForm').addEventListener('submit', saveAttempt);
     populateAttemptSelectors();
@@ -2150,21 +2449,24 @@ console.log(latexToText(sampleLatex));
   function upsert(collection, item) { const index = collection.findIndex((entry) => entry.id === item.id); if (index === -1) collection.unshift(item); else collection[index] = { ...collection[index], ...item }; }
   function readFileAsDataUrl(file) { if (!file) return Promise.resolve(''); return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); }
   function queueTypeset() { if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise(); }
-  function formatMathForDisplay(text) {
+  function formatMathForDisplay(text, options = {}) {
+    const subject = String(options.subject || '').toLowerCase();
+    const isPhysics = subject.includes('physics') || subject.includes('পদার্থ');
     const normalized = escapeHtml(latexToPlainText(text))
       .replace(/\|/g, '')
-      .replace(/\*/g, ' × ')
+      .replace(/\*/g, isPhysics ? ' * ' : ' × ')
       .replace(/\s*=\s*/g, ' = ')
       .replace(/\s+/g, ' ')
-      .replace(/\b([a-zA-Z])(\d+)\b/g, '$1^$2')
+      .replace(isPhysics ? /$^/g : /\b([a-zA-Z])(\d+)\b/g, '$1^$2')
       .trim();
-    return normalized
+    const withSuperSub = normalized
       .replace(/sqrt\(([^)]+)\)/g, '√$1')
       .replace(/([A-Za-z0-9)\]])\s*\^\s*\(([^)]+)\)/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*\(([^)]+)\)/g, '$1<sub>$2</sub>')
-      .replace(/([A-Za-z0-9)\]])\s*\^\s*([A-Za-z0-9+\-./]+)/g, '$1<sup>$2</sup>')
-      .replace(/([A-Za-z0-9)\]])\s*_\s*([A-Za-z0-9+\-./]+)/g, '$1<sub>$2</sub>')
-      .replace(/(?<![\w>])([A-Za-z0-9.+\-]+)\s*\/\s*([A-Za-z0-9.+\-]+)(?![\w<])/g, '<span class="math-frac"><span class="math-frac__num">$1</span><span class="math-frac__den">$2</span></span>');
+      .replace(/([A-Za-z0-9)\]])\s*\^\s*([A-Za-z0-9.]+)/g, '$1<sup>$2</sup>')
+      .replace(/([A-Za-z0-9)\]])\s*_\s*([A-Za-z0-9.]+)/g, '$1<sub>$2</sub>');
+    if (isPhysics) return withSuperSub;
+    return withSuperSub.replace(/(?<![\w>])([A-Za-z0-9.+\-]+)\s*\/\s*([A-Za-z0-9.+\-]+)(?![\w<])/g, '<span class="math-frac"><span class="math-frac__num">$1</span><span class="math-frac__den">$2</span></span>');
   }
   function emptyState(message) { return `<div class="empty-state"><p>${escapeHtml(message)}</p></div>`; }
   function escapeHtml(value = '') { return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
