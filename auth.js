@@ -1,41 +1,83 @@
 (() => {
   const STORAGE_KEY = 'megaprep-cms-state-v2';
   const SESSION_KEY = 'megaprep-session-v1';
+  const SUPABASE_URL = 'https://qjwwsijubeiimoloeksa.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqd3dzaWp1YmVpaW1vbG9la3NhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjkyNTgsImV4cCI6MjA5MDU0NTI1OH0.TST4rsA7dM0HYIrgvoq05tZVUWd3RBF7IIYVWLeHbuU';
 
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => { init(); });
 
   function init() {
+    redirectIfAdminAlreadyLoggedIn();
     bindAdminLogin();
     bindAdminSignup();
     bindStudentLogin();
     bindStudentSignup();
   }
 
+  async function redirectIfAdminAlreadyLoggedIn() {
+    if (!/admin-login\.html|admin-signup\.html/.test(window.location.pathname)) return;
+    try {
+      const supabase = await ensureSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
+      if (profile?.role === 'admin') window.location.replace('index.html');
+    } catch {
+      // ignore
+    }
+  }
+
   function bindAdminLogin() {
     const form = document.getElementById('adminLoginForm');
     if (!form) return;
-    form.addEventListener('submit', (event) => {
+    form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const state = getState();
+      const submitBtn = form.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+      let supabase;
+      try {
+        supabase = await ensureSupabaseClient();
+      } catch {
+        if (submitBtn) submitBtn.disabled = false;
+        return alert('Supabase সংযোগ হচ্ছে না। Admin login এর জন্য internet/Supabase connection লাগবে।');
+      }
       const email = form.querySelector('input[type="email"]').value.trim();
       const password = form.querySelector('input[type="password"]').value;
-      const validCustomAdmin = state.credentials.admins.find((admin) => admin.email === email && admin.password === password);
-      if (password !== state.credentials.adminPassword && !validCustomAdmin) {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data?.user) {
+        if (submitBtn) submitBtn.disabled = false;
         return alert('Invalid admin credentials.');
       }
+      const { error: profileError } = await supabase.from('profiles').upsert({
+        id: data.user.id,
+        role: 'admin',
+        full_name: email.split('@')[0] || 'Admin',
+      });
+      if (profileError) {
+        await supabase.auth.signOut();
+        if (submitBtn) submitBtn.disabled = false;
+        return alert(`Login failed while preparing admin profile: ${profileError.message}`);
+      }
+      const state = getState();
+      await seedCloudWorkspaceFromLocal(supabase, state);
       const session = createSession('admin', email || 'admin');
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       saveDevice(state, session);
-      window.location.href = 'index.html';
+      window.location.replace('index.html');
     });
   }
 
   function bindAdminSignup() {
     const form = document.getElementById('adminSignupForm');
     if (!form) return;
-    form.addEventListener('submit', (event) => {
+    form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const state = getState();
+      let supabase;
+      try {
+        supabase = await ensureSupabaseClient();
+      } catch {
+        return alert('Supabase সংযোগ হচ্ছে না। কিছুক্ষণ পর আবার চেষ্টা করুন।');
+      }
       const inputs = form.querySelectorAll('input');
       const payload = {
         id: `admin-${Date.now()}`,
@@ -45,9 +87,12 @@
         phone: inputs[3].value.trim(),
         password: inputs[4].value,
       };
+      const { data, error } = await supabase.auth.signUp({ email: payload.email, password: payload.password });
+      if (error || !data?.user) return alert(error?.message || 'Failed to create admin account.');
+      const state = getState();
       state.credentials.admins.push(payload);
       saveState(state);
-      alert('Admin account created. Please login.');
+      alert('Admin auth account created. Set this user as admin in Supabase profiles table, then login.');
       window.location.href = 'admin-login.html';
     });
   }
@@ -127,5 +172,43 @@
 
   function saveState(state) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  async function seedCloudWorkspaceFromLocal(supabase, localState) {
+    try {
+      const { data } = await supabase.from('app_settings').select('workspace_data').eq('id', 1).maybeSingle();
+      const hasCloud = data?.workspace_data && Object.keys(data.workspace_data || {}).length;
+      if (hasCloud) return;
+      await supabase.from('app_settings').upsert({
+        id: 1,
+        workspace_data: localState,
+        dark_mode: !!localState.settings?.darkMode,
+        print_config: localState.settings?.printConfig || {},
+        credentials: localState.credentials || {},
+      });
+    } catch {
+      // ignore cloud seed issues
+    }
+  }
+
+  async function ensureSupabaseClient() {
+    if (window.__supabaseClient) return window.__supabaseClient;
+    await ensureScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
+    if (!window.supabase?.createClient) throw new Error('Supabase SDK failed to load.');
+    window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    return window.__supabaseClient;
+  }
+
+  function ensureScript(src) {
+    if (document.querySelector(`script[data-src="${src}"]`)) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = true;
+      script.dataset.src = src;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+      document.head.appendChild(script);
+    });
   }
 })();
