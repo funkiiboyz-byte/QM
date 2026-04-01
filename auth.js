@@ -1,6 +1,7 @@
 (() => {
   const STORAGE_KEY = 'megaprep-cms-state-v2';
   const SESSION_KEY = 'megaprep-session-v1';
+  const DASHBOARD_URL = 'index.html';
   const SUPABASE_URL = 'https://qjwwsijubeiimoloeksa.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqd3dzaWp1YmVpaW1vbG9la3NhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjkyNTgsImV4cCI6MjA5MDU0NTI1OH0.TST4rsA7dM0HYIrgvoq05tZVUWd3RBF7IIYVWLeHbuU';
 
@@ -16,11 +17,28 @@
   }
 
   function init() {
+    bindSupabaseAuthRedirect();
     redirectIfAdminAlreadyLoggedIn();
     bindAdminLogin();
     bindAdminSignup();
     bindStudentLogin();
     bindStudentSignup();
+  }
+
+  function bindSupabaseAuthRedirect() {
+    if (!/admin-login\.html|admin-signup\.html/.test(window.location.pathname)) return;
+    ensureSupabaseClient()
+      .then((supabase) => {
+        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+          if (event === 'SIGNED_IN' && session?.user) {
+            window.location.replace(DASHBOARD_URL);
+          }
+        });
+        window.addEventListener('beforeunload', () => authListener?.subscription?.unsubscribe(), { once: true });
+      })
+      .catch(() => {
+        // ignore listener wiring failure
+      });
   }
 
   async function redirectIfAdminAlreadyLoggedIn() {
@@ -30,7 +48,7 @@
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) return;
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
-      if (profile?.role === 'admin') window.location.replace('index.html');
+      if (profile?.role === 'admin') window.location.replace(DASHBOARD_URL);
     } catch {
       // ignore
     }
@@ -75,7 +93,7 @@
       const session = createSession('admin', email || 'admin');
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       saveDevice(state, session);
-      window.location.replace('index.html');
+      window.location.replace(DASHBOARD_URL);
     });
   }
 
