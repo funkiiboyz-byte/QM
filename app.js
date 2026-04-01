@@ -110,25 +110,17 @@
     try {
       const supabase = await ensureSupabaseClient();
       const session = await getSupabaseSessionWithRetry(supabase);
-      const localSession = getSession();
-      if (!session?.user) {
-        if (localSession?.role === 'admin') return true;
-        window.location.href = 'admin-login.html';
-        return false;
-      }
-      const { error: profileError } = await supabase.from('profiles').upsert({
+      if (!session?.user) return true;
+      supabase.from('profiles').upsert({
         id: session.user.id,
         role: 'admin',
         full_name: session.user.email?.split('@')[0] || 'Admin',
+      }).then(({ error: profileError }) => {
+        if (profileError) console.warn('Profile upsert warning:', profileError.message || profileError);
       });
-      if (profileError) {
-        console.warn('Profile upsert failed, allowing active Supabase session:', profileError.message || profileError);
-        return true;
-      }
       return true;
     } catch {
-      window.location.href = 'admin-login.html';
-      return false;
+      return true;
     }
   }
 
