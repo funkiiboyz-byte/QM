@@ -47,6 +47,7 @@
   let editingQuestionId = '';
   let selectedManageExamId = '';
   let supabaseClientPromise = null;
+  let cloudSaveTimer = null;
 
   document.addEventListener('DOMContentLoaded', () => { init(); });
 
@@ -55,6 +56,7 @@
     if (currentPage !== 'solution-download') {
       const allowed = await ensureAdminAccess();
       if (!allowed) return;
+      await hydrateStateFromCloud();
     }
     bindThemeToggle();
     bindExportImport();
@@ -149,7 +151,48 @@
     };
   }
 
-  function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  function saveState() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    queueCloudStateSave();
+  }
+
+  function queueCloudStateSave() {
+    clearTimeout(cloudSaveTimer);
+    cloudSaveTimer = setTimeout(() => { syncStateToCloud(); }, 350);
+  }
+
+  async function hydrateStateFromCloud() {
+    try {
+      const supabase = await ensureSupabaseClient();
+      const { data } = await supabase
+        .from('app_settings')
+        .select('workspace_data')
+        .eq('id', 1)
+        .maybeSingle();
+      if (!data?.workspace_data) return;
+      const merged = mergeState(data.workspace_data);
+      Object.keys(state).forEach((key) => { delete state[key]; });
+      Object.assign(state, merged);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      // fallback to local storage
+    }
+  }
+
+  async function syncStateToCloud() {
+    try {
+      const supabase = await ensureSupabaseClient();
+      await supabase.from('app_settings').upsert({
+        id: 1,
+        workspace_data: state,
+        dark_mode: !!state.settings?.darkMode,
+        print_config: state.settings?.printConfig || {},
+        credentials: state.credentials || {},
+      });
+    } catch {
+      // ignore cloud sync errors in offline mode
+    }
+  }
   function getSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } }
   function uid(prefix) { return `${prefix}-${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-5)}`; }
 

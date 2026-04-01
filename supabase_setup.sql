@@ -118,6 +118,7 @@ create table if not exists public.devices (
 create table if not exists public.app_settings (
   id int primary key default 1,
   dark_mode boolean default false,
+  workspace_data jsonb default '{}'::jsonb,
   print_config jsonb default '{}'::jsonb,
   credentials jsonb default '{}'::jsonb,
   constraint app_settings_singleton check (id = 1)
@@ -125,6 +126,9 @@ create table if not exists public.app_settings (
 
 insert into public.app_settings(id) values (1)
 on conflict (id) do nothing;
+
+alter table public.app_settings
+add column if not exists workspace_data jsonb default '{}'::jsonb;
 
 -- Admin-only policies for app tables
 alter table public.exams enable row level security;
