@@ -169,7 +169,12 @@
         .select('workspace_data')
         .eq('id', 1)
         .maybeSingle();
-      if (!data?.workspace_data) return;
+      const cloudData = data?.workspace_data || null;
+      const localHasData = !!(state.exams?.length || state.questions?.length || state.students?.length || state.attempts?.length);
+      if (!cloudData || !Object.keys(cloudData).length) {
+        if (localHasData) await syncStateToCloud();
+        return;
+      }
       const merged = mergeState(data.workspace_data);
       Object.keys(state).forEach((key) => { delete state[key]; });
       Object.assign(state, merged);

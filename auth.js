@@ -68,6 +68,7 @@
         return alert('This account is not an admin. Please set role=admin in profiles.');
       }
       const state = getState();
+      await seedCloudWorkspaceFromLocal(supabase, state);
       const session = createSession('admin', email || 'admin');
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       saveDevice(state, session);
@@ -198,6 +199,23 @@
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     saveDevice(state, session);
     return true;
+  }
+
+  async function seedCloudWorkspaceFromLocal(supabase, localState) {
+    try {
+      const { data } = await supabase.from('app_settings').select('workspace_data').eq('id', 1).maybeSingle();
+      const hasCloud = data?.workspace_data && Object.keys(data.workspace_data || {}).length;
+      if (hasCloud) return;
+      await supabase.from('app_settings').upsert({
+        id: 1,
+        workspace_data: localState,
+        dark_mode: !!localState.settings?.darkMode,
+        print_config: localState.settings?.printConfig || {},
+        credentials: localState.credentials || {},
+      });
+    } catch {
+      // ignore cloud seed issues
+    }
   }
 
   async function ensureSupabaseClient() {
