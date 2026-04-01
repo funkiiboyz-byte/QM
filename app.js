@@ -48,6 +48,7 @@
   let selectedManageExamId = '';
   let supabaseClientPromise = null;
   let cloudSaveTimer = null;
+  let cloudLifecycleBound = false;
 
   document.addEventListener('DOMContentLoaded', () => { init(); });
 
@@ -56,6 +57,7 @@
     if (currentPage !== 'solution-download') {
       const allowed = await ensureAdminAccess();
       if (!allowed) return;
+      bindCloudLifecycleSync();
       await hydrateStateFromCloud();
     }
     bindThemeToggle();
@@ -153,7 +155,18 @@
 
   function queueCloudStateSave() {
     clearTimeout(cloudSaveTimer);
-    cloudSaveTimer = setTimeout(() => { syncStateToCloud(); }, 350);
+    cloudSaveTimer = setTimeout(() => { syncStateToCloud({ retries: 3 }); }, 350);
+  }
+
+  function bindCloudLifecycleSync() {
+    if (cloudLifecycleBound) return;
+    cloudLifecycleBound = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') syncStateToCloud({ retries: 1 });
+    });
+    window.addEventListener('beforeunload', () => {
+      syncStateToCloud({ retries: 1 });
+    });
   }
 
   async function hydrateStateFromCloud() {
@@ -168,7 +181,7 @@
       const cloudData = data?.workspace_data || null;
       const localHasData = !!(state.exams?.length || state.questions?.length || state.students?.length || state.attempts?.length);
       if (!cloudData || !Object.keys(cloudData).length) {
-        if (localHasData) await syncStateToCloud();
+        if (localHasData) await syncStateToCloud({ retries: 3 });
         return;
       }
       const merged = mergeState(data.workspace_data);
@@ -180,20 +193,31 @@
     }
   }
 
-  async function syncStateToCloud() {
+  async function syncStateToCloud({ retries = 1 } = {}) {
+    let lastError = null;
+    for (let attempt = 1; attempt <= retries; attempt += 1) {
+      try {
+        const supabase = await ensureSupabaseClient();
+        const { error } = await supabase.from('app_settings').upsert({
+          id: 1,
+          workspace_data: state,
+          dark_mode: !!state.settings?.darkMode,
+          print_config: state.settings?.printConfig || {},
+          credentials: state.credentials || {},
+        });
+        if (error) throw error;
+        return true;
+      } catch (err) {
+        lastError = err;
+      }
+    }
     try {
-      const supabase = await ensureSupabaseClient();
-      const { error } = await supabase.from('app_settings').upsert({
-        id: 1,
-        workspace_data: state,
-        dark_mode: !!state.settings?.darkMode,
-        print_config: state.settings?.printConfig || {},
-        credentials: state.credentials || {},
-      });
-      if (error) throw error;
+      const message = lastError?.message || JSON.stringify(lastError) || 'unknown error';
+      console.warn(`Cloud sync failed after retry. Data kept locally. ${message}`);
     } catch {
       console.warn('Cloud sync failed. Data kept locally.');
     }
+    return false;
   }
   function getSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } }
   function uid(prefix) { return `${prefix}-${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-5)}`; }
