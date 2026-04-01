@@ -2,14 +2,8 @@
   const STORAGE_KEY = 'megaprep-cms-state-v2';
   const SESSION_KEY = 'megaprep-session-v1';
   const DASHBOARD_URL = 'index.html';
-  const FIREBASE_CONFIG = window.MPQM_FIREBASE_CONFIG || {
-    apiKey: '',
-    authDomain: '',
-    projectId: '',
-    storageBucket: '',
-    messagingSenderId: '',
-    appId: '',
-  };
+  const CLOUDFLARE_API = (window.MPQM_CLOUDFLARE_API || '').replace(/\/+$/, '');
+  const CLOUDFLARE_TOKEN = window.MPQM_CLOUDFLARE_TOKEN || '';
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init, { once: true });
@@ -17,13 +11,19 @@
     init();
   }
 
-  async function waitForSession(auth, retries = 5, delayMs = 200) {
-    for (let attempt = 0; attempt < retries; attempt += 1) {
-      const user = auth.currentUser;
-      if (user) return user;
-      if (attempt < retries - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
-    return null;
+  async function cloudflareRequest(path, { method = 'GET', body } = {}) {
+    if (!CLOUDFLARE_API || !CLOUDFLARE_TOKEN) throw new Error('Cloudflare config missing.');
+    const response = await fetch(`${CLOUDFLARE_API}${path}`, {
+      method,
+      headers: {
+        'content-type': 'application/json',
+        'x-admin-token': CLOUDFLARE_TOKEN,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) throw new Error(data?.error || `Request failed (${response.status})`);
+    return data;
   }
 
   function init() {
@@ -36,31 +36,13 @@
   }
 
   function bindSupabaseAuthRedirect() {
-    if (!/admin-login\.html|admin-signup\.html/.test(window.location.pathname)) return;
-    ensureFirebaseClient()
-      .then(({ auth }) => {
-        const unsubscribe = auth.onAuthStateChanged((user) => {
-          if (user) window.location.replace(DASHBOARD_URL);
-        });
-        window.addEventListener('beforeunload', () => unsubscribe?.(), { once: true });
-      })
-      .catch(() => {
-        // ignore listener wiring failure
-      });
+    // no-op for Cloudflare token based backend
   }
 
   async function redirectIfAdminAlreadyLoggedIn() {
     if (!/admin-login\.html|admin-signup\.html/.test(window.location.pathname)) return;
-    try {
-      const { auth, db } = await ensureFirebaseClient();
-      const user = auth.currentUser;
-      if (!user) return;
-      const profileDoc = await db.collection('profiles').doc(user.uid).get();
-      const profile = profileDoc.exists ? profileDoc.data() : null;
-      if (profile?.role === 'admin') window.location.replace(DASHBOARD_URL);
-    } catch {
-      // ignore
-    }
+    const session = getSession();
+    if (session?.role === 'admin') window.location.replace(DASHBOARD_URL);
   }
 
   function bindAdminLogin() {
@@ -70,39 +52,21 @@
       event.preventDefault();
       const submitBtn = form.querySelector('button[type="submit"]');
       if (submitBtn) submitBtn.disabled = true;
-      let firebaseClient;
-      try {
-        firebaseClient = await ensureFirebaseClient();
-      } catch {
-        if (submitBtn) submitBtn.disabled = false;
-        return alert('Firebase সংযোগ হচ্ছে না। Admin login এর জন্য internet লাগবে।');
-      }
       const email = form.querySelector('input[type="email"]').value.trim();
       const password = form.querySelector('input[type="password"]').value;
-      let credential;
-      try {
-        credential = await firebaseClient.auth.signInWithEmailAndPassword(email, password);
-      } catch (error) {
+      const state = getState();
+      const validCustomAdmin = state.credentials?.admins?.find((admin) => admin.email === email && admin.password === password);
+      if (password !== state.credentials?.adminPassword && !validCustomAdmin) {
         if (submitBtn) submitBtn.disabled = false;
         return alert('Invalid admin credentials.');
       }
-      const user = credential?.user || null;
-      console.log('Admin login response:', { hasUser: !!user, error: null });
-      const state = getState();
-      await seedCloudWorkspaceFromLocal(firebaseClient, state);
+      await seedCloudWorkspaceFromLocal(state);
       const session = createSession('admin', email || 'admin');
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       saveDevice(state, session);
-      const authUser = await waitForSession(firebaseClient.auth);
-      if (authUser) {
-        firebaseClient.db.collection('profiles').doc(authUser.uid).set({
-          role: 'admin',
-          full_name: email.split('@')[0] || 'Admin',
-          updated_at: new Date().toISOString(),
-        }, { merge: true }).catch((profileError) => {
-          console.warn('Profile upsert failed, continuing with active session:', profileError?.message || profileError);
-        });
-      }
+      const profileId = btoa(email.toLowerCase());
+      cloudflareRequest('/profiles/upsert', { method: 'POST', body: { id: profileId, role: 'admin', full_name: email.split('@')[0] || 'Admin' } })
+        .catch((error) => console.warn('Profile upsert failed:', error?.message || error));
       window.location.replace(DASHBOARD_URL);
     });
   }
@@ -112,12 +76,6 @@
     if (!form) return;
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      let firebaseClient;
-      try {
-        firebaseClient = await ensureFirebaseClient();
-      } catch {
-        return alert('Firebase সংযোগ হচ্ছে না। কিছুক্ষণ পর আবার চেষ্টা করুন।');
-      }
       const inputs = form.querySelectorAll('input');
       const payload = {
         id: `admin-${Date.now()}`,
@@ -127,15 +85,13 @@
         phone: inputs[3].value.trim(),
         password: inputs[4].value,
       };
-      try {
-        await firebaseClient.auth.createUserWithEmailAndPassword(payload.email, payload.password);
-      } catch (error) {
-        return alert(error?.message || 'Failed to create admin account.');
-      }
       const state = getState();
       state.credentials.admins.push(payload);
       saveState(state);
-      alert('Admin account created in Firebase Auth. এখন login করুন।');
+      const profileId = btoa(payload.email.toLowerCase());
+      cloudflareRequest('/profiles/upsert', { method: 'POST', body: { id: profileId, role: 'admin', full_name: payload.name || payload.email.split('@')[0] } })
+        .catch((error) => console.warn('Profile upsert failed:', error?.message || error));
+      alert('Admin account created. এখন login করুন।');
       window.location.href = 'admin-login.html';
     });
   }
@@ -236,35 +192,26 @@
     return snapshot;
   }
 
-  async function seedCloudWorkspaceFromLocal(firebaseClient, localState) {
+  async function seedCloudWorkspaceFromLocal(localState) {
     try {
-      const doc = await firebaseClient.db.collection('app_settings').doc('workspace').get();
-      const cloudData = doc.exists ? (doc.data()?.workspace_data || null) : null;
+      const payload = await cloudflareRequest('/workspace');
+      const row = payload?.data || null;
+      const cloudData = row?.workspace_data ? JSON.parse(row.workspace_data) : null;
       const hasCloud = cloudData && Object.keys(cloudData || {}).length;
       if (hasCloud) return;
       const cloudState = buildCloudStateSnapshot(localState);
-      await firebaseClient.db.collection('app_settings').doc('workspace').set({
-        workspace_data: cloudState,
-        dark_mode: !!cloudState.settings?.darkMode,
-        print_config: cloudState.settings?.printConfig || {},
-        credentials: cloudState.credentials || {},
-        updated_at: new Date().toISOString(),
-      }, { merge: true });
+      await cloudflareRequest('/workspace', {
+        method: 'PUT',
+        body: {
+          workspace_data: cloudState,
+          dark_mode: !!cloudState.settings?.darkMode,
+          print_config: cloudState.settings?.printConfig || {},
+          credentials: cloudState.credentials || {},
+        },
+      });
     } catch {
       // ignore cloud seed issues
     }
-  }
-
-  async function ensureFirebaseClient() {
-    if (window.__firebaseClient) return window.__firebaseClient;
-    await ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
-    await ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js');
-    await ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js');
-    if (!window.firebase?.initializeApp) throw new Error('Firebase SDK failed to load.');
-    if (!FIREBASE_CONFIG.apiKey || !FIREBASE_CONFIG.projectId) throw new Error('Firebase config missing. Set window.MPQM_FIREBASE_CONFIG.');
-    const app = window.firebase.apps?.length ? window.firebase.app() : window.firebase.initializeApp(FIREBASE_CONFIG);
-    window.__firebaseClient = { app, auth: window.firebase.auth(), db: window.firebase.firestore() };
-    return window.__firebaseClient;
   }
 
   function ensureScript(src) {

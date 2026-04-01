@@ -3,14 +3,8 @@
   const SESSION_KEY = 'megaprep-session-v1';
   const OPENAI_KEY_STORAGE = 'megaprep-openai-key-v1';
   const OPENAI_MODEL_STORAGE = 'megaprep-openai-model-v1';
-  const FIREBASE_CONFIG = window.MPQM_FIREBASE_CONFIG || {
-    apiKey: '',
-    authDomain: '',
-    projectId: '',
-    storageBucket: '',
-    messagingSenderId: '',
-    appId: '',
-  };
+  const CLOUDFLARE_API = (window.MPQM_CLOUDFLARE_API || '').replace(/\/+$/, '');
+  const CLOUDFLARE_TOKEN = window.MPQM_CLOUDFLARE_TOKEN || '';
   const CURRICULUM = window.MEGAPREP_CURRICULUM || {};
   const defaultState = {
     exams: [],
@@ -52,7 +46,6 @@
   let selectedQuestionExamId = '';
   let editingQuestionId = '';
   let selectedManageExamId = '';
-  let firebaseClientPromise = null;
   let cloudSaveTimer = null;
   let cloudLifecycleBound = false;
 
@@ -86,49 +79,23 @@
     }
   }
 
-  async function ensureFirebaseClient() {
-    if (window.__firebaseClient) return window.__firebaseClient;
-    if (!firebaseClientPromise) {
-      firebaseClientPromise = Promise.all([
-        ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js'),
-        ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js'),
-        ensureScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js'),
-      ]).then(() => {
-        if (!window.firebase?.initializeApp) throw new Error('Firebase SDK not loaded.');
-        if (!FIREBASE_CONFIG.apiKey || !FIREBASE_CONFIG.projectId) throw new Error('Firebase config missing. Set window.MPQM_FIREBASE_CONFIG.');
-        const app = window.firebase.apps?.length ? window.firebase.app() : window.firebase.initializeApp(FIREBASE_CONFIG);
-        window.__firebaseClient = { app, auth: window.firebase.auth(), db: window.firebase.firestore() };
-        return window.__firebaseClient;
-      });
-    }
-    return firebaseClientPromise;
-  }
-
-  async function getFirebaseUserWithRetry(auth, retries = 5, delayMs = 250) {
-    for (let attempt = 0; attempt < retries; attempt += 1) {
-      const user = auth.currentUser;
-      if (user) return user;
-      if (attempt < retries - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
-    return null;
+  async function cloudflareRequest(path, { method = 'GET', body } = {}) {
+    if (!CLOUDFLARE_API || !CLOUDFLARE_TOKEN) throw new Error('Cloudflare config missing.');
+    const response = await fetch(`${CLOUDFLARE_API}${path}`, {
+      method,
+      headers: {
+        'content-type': 'application/json',
+        'x-admin-token': CLOUDFLARE_TOKEN,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) throw new Error(data?.error || `Request failed (${response.status})`);
+    return data;
   }
 
   async function ensureAdminAccess() {
-    try {
-      const { auth, db } = await ensureFirebaseClient();
-      const user = await getFirebaseUserWithRetry(auth);
-      if (!user) return true;
-      db.collection('profiles').doc(user.uid).set({
-        role: 'admin',
-        full_name: user.email?.split('@')[0] || 'Admin',
-        updated_at: new Date().toISOString(),
-      }, { merge: true }).catch((error) => {
-        console.warn('Profile upsert warning:', error?.message || error);
-      });
-      return true;
-    } catch {
-      return true;
-    }
+    return true;
   }
 
   function loadState() {
@@ -176,9 +143,9 @@
 
   async function hydrateStateFromCloud() {
     try {
-      const { db } = await ensureFirebaseClient();
-      const doc = await db.collection('app_settings').doc('workspace').get();
-      const cloudData = doc.exists ? (doc.data()?.workspace_data || null) : null;
+      const payload = await cloudflareRequest('/workspace');
+      const row = payload?.data || null;
+      const cloudData = row?.workspace_data ? JSON.parse(row.workspace_data) : null;
       const localHasData = !!(state.exams?.length || state.questions?.length || state.students?.length || state.attempts?.length);
       if (!cloudData || !Object.keys(cloudData).length) {
         if (localHasData) await syncStateToCloud({ retries: 3 });
@@ -230,14 +197,15 @@
     let lastError = null;
     for (let attempt = 1; attempt <= retries; attempt += 1) {
       try {
-        const { db } = await ensureFirebaseClient();
-        await db.collection('app_settings').doc('workspace').set({
-          workspace_data: cloudState,
-          dark_mode: !!cloudState.settings?.darkMode,
-          print_config: cloudState.settings?.printConfig || {},
-          credentials: cloudState.credentials || {},
-          updated_at: new Date().toISOString(),
-        }, { merge: true });
+        await cloudflareRequest('/workspace', {
+          method: 'PUT',
+          body: {
+            workspace_data: cloudState,
+            dark_mode: !!cloudState.settings?.darkMode,
+            print_config: cloudState.settings?.printConfig || {},
+            credentials: cloudState.credentials || {},
+          },
+        });
         return true;
       } catch (err) {
         lastError = err;
@@ -347,12 +315,6 @@
   }
 
   async function logoutAdminSession() {
-    try {
-      const { auth } = await ensureFirebaseClient();
-      await auth.signOut();
-    } catch {
-      // ignore cloud signout failures
-    }
     localStorage.removeItem(SESSION_KEY);
     window.location.href = 'admin-login.html';
   }
