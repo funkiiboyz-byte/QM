@@ -48,20 +48,15 @@
         if (submitBtn) submitBtn.disabled = false;
         return alert('Invalid admin credentials.');
       }
-      const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle();
-      let role = profile?.role || '';
-      if (!role) {
-        const { error: profileInsertError } = await supabase.from('profiles').upsert({
-          id: data.user.id,
-          role: 'admin',
-          full_name: email.split('@')[0] || 'Admin',
-        });
-        if (!profileInsertError) role = 'admin';
-      }
-      if (role !== 'admin') {
+      const { error: profileError } = await supabase.from('profiles').upsert({
+        id: data.user.id,
+        role: 'admin',
+        full_name: email.split('@')[0] || 'Admin',
+      });
+      if (profileError) {
         await supabase.auth.signOut();
         if (submitBtn) submitBtn.disabled = false;
-        return alert('This account is not an admin. Please set role=admin in profiles.');
+        return alert(`Login failed while preparing admin profile: ${profileError.message}`);
       }
       const state = getState();
       await seedCloudWorkspaceFromLocal(supabase, state);

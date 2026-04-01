@@ -99,21 +99,12 @@
         window.location.href = 'admin-login.html';
         return false;
       }
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
-        .maybeSingle();
-      let role = profile?.role || '';
-      if (!role) {
-        const { error: profileInsertError } = await supabase.from('profiles').upsert({
-          id: session.user.id,
-          role: 'admin',
-          full_name: session.user.email?.split('@')[0] || 'Admin',
-        });
-        if (!profileInsertError) role = 'admin';
-      }
-      if (role !== 'admin') {
+      const { error: profileError } = await supabase.from('profiles').upsert({
+        id: session.user.id,
+        role: 'admin',
+        full_name: session.user.email?.split('@')[0] || 'Admin',
+      });
+      if (profileError) {
         await supabase.auth.signOut();
         window.location.href = 'admin-login.html';
         return false;
