@@ -23,42 +23,33 @@
             <span class="brand-tag brand-tag--light">CMS Admin</span>
           </div>
         </div>
-        <p class="eyebrow eyebrow--light">Secure access</p>
-        <h1>Welcome back, admin.</h1>
-        <p class="auth-intro-copy">
-          Access exam operations, staff controls, and reporting tools from a secure professional
-          workspace.
-        </p>
-        <div class="auth-feature-list">
-          <div>
-            <strong>Exam governance</strong>
-            <span>Create, review, and publish assessments faster.</span>
-          </div>
-          <div>
-            <strong>Role security</strong>
-            <span>Protect access with controlled team-level permissions.</span>
-          </div>
-          <div>
-            <strong>Performance insights</strong>
-            <span>Track activity, trends, and session health in one place.</span>
-          </div>
+
+        <div class="auth-hero-copy">
+          <p class="eyebrow eyebrow--light">Admin access</p>
+          <h1>Sign in to the admin workspace.</h1>
+          <p class="auth-intro-copy auth-intro-copy--light">
+            Clean access for managing exams and platform settings.
+          </p>
         </div>
       </section>
 
       <section class="auth-panel auth-panel--form">
         <div class="auth-card">
-          <p class="form-kicker">Admin login</p>
-          <h2>Sign in to MegaPrep CMS</h2>
-          <p class="form-copy">Use your assigned credentials to continue to the admin console.</p>
+          <div class="auth-card-top auth-card-top--compact">
+            <div>
+              <p class="form-kicker">Admin login</p>
+              <h2>Sign in</h2>
+            </div>
+          </div>
 
-          <form class="auth-form">
+          <form id="adminLoginForm" class="auth-form">
             <label>
               Work email
-              <input type="email" placeholder="admin@megaprep.com" />
+              <input type="email" placeholder="Enter work email" />
             </label>
             <label>
               Password
-              <input type="password" placeholder="Enter your password" />
+              <input type="password" placeholder="Enter password" />
             </label>
 
             <div class="form-row">
@@ -72,12 +63,13 @@
             <button type="submit" class="submit-button">Login to Dashboard</button>
           </form>
 
-          <p class="switch-copy">
+          <p class="switch-copy switch-copy--simple">
             Need a new admin account?
             <a href="admin-signup.html">Create admin profile</a>
           </p>
         </div>
       </section>
     </main>
+      <script src="auth.js"></script>
   </body>
 </html>
