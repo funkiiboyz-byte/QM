@@ -169,6 +169,13 @@ for all using (public.is_admin()) with check (public.is_admin());
 create policy "admin_all_app_settings" on public.app_settings
 for all using (public.is_admin()) with check (public.is_admin());
 
+-- Optional open access: allow app usage without login page
+create policy "anon_all_app_settings" on public.app_settings
+for all to anon using (true) with check (true);
+
+create policy "authenticated_all_app_settings" on public.app_settings
+for all to authenticated using (true) with check (true);
+
 -- Auto-promote your known admin email (if auth user already exists)
 do $$
 declare

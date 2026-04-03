@@ -1,19 +1,33 @@
 (() => {
   const STORAGE_KEY = 'megaprep-cms-state-v2';
   const SESSION_KEY = 'megaprep-session-v1';
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  function init() {
   const DASHBOARD_URL = 'index.html';
-  const SUPABASE_URL = 'https://qjwwsijubeiimoloeksa.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqd3dzaWp1YmVpaW1vbG9la3NhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjkyNTgsImV4cCI6MjA5MDU0NTI1OH0.TST4rsA7dM0HYIrgvoq05tZVUWd3RBF7IIYVWLeHbuU';
+  const CLOUDFLARE_API = (window.MPQM_CLOUDFLARE_API || '').replace(/\/+$/, '');
+  const CLOUDFLARE_TOKEN = window.MPQM_CLOUDFLARE_TOKEN || '';
 
-  document.addEventListener('DOMContentLoaded', () => { init(); });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, { once: true });
+  } else {
+    init();
+  }
 
-  async function waitForSession(supabase, retries = 5, delayMs = 200) {
-    for (let attempt = 0; attempt < retries; attempt += 1) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) return session;
-      if (attempt < retries - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
-    return null;
+  async function cloudflareRequest(path, { method = 'GET', body } = {}) {
+    if (!CLOUDFLARE_API || !CLOUDFLARE_TOKEN) throw new Error('Cloudflare config missing.');
+    const response = await fetch(`${CLOUDFLARE_API}${path}`, {
+      method,
+      headers: {
+        'content-type': 'application/json',
+        'x-admin-token': CLOUDFLARE_TOKEN,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) throw new Error(data?.error || `Request failed (${response.status})`);
+    return data;
   }
 
   function init() {
@@ -25,33 +39,30 @@
     bindStudentSignup();
   }
 
+  function bindAdminLogin() {
+    const form = document.getElementById('adminLoginForm');
+    if (!form) return;
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const state = getState();
+      const email = form.querySelector('input[type="email"]').value.trim();
+      const password = form.querySelector('input[type="password"]').value;
+      const validCustomAdmin = state.credentials.admins.find((admin) => admin.email === email && admin.password === password);
+      if (password !== state.credentials.adminPassword && !validCustomAdmin) {
+        return alert('Invalid admin credentials.');
+      }
+      const session = createSession('admin', email || 'admin');
+      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      saveDevice(state, session);
+      window.location.href = 'index.html';
   function bindSupabaseAuthRedirect() {
-    if (!/admin-login\.html|admin-signup\.html/.test(window.location.pathname)) return;
-    ensureSupabaseClient()
-      .then((supabase) => {
-        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-          if (event === 'SIGNED_IN' && session?.user) {
-            window.location.replace(DASHBOARD_URL);
-          }
-        });
-        window.addEventListener('beforeunload', () => authListener?.subscription?.unsubscribe(), { once: true });
-      })
-      .catch(() => {
-        // ignore listener wiring failure
-      });
+    // no-op for Cloudflare token based backend
   }
 
   async function redirectIfAdminAlreadyLoggedIn() {
     if (!/admin-login\.html|admin-signup\.html/.test(window.location.pathname)) return;
-    try {
-      const supabase = await ensureSupabaseClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) return;
-      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
-      if (profile?.role === 'admin') window.location.replace(DASHBOARD_URL);
-    } catch {
-      // ignore
-    }
+    const session = getSession();
+    if (session?.role === 'admin') window.location.replace(DASHBOARD_URL);
   }
 
   function bindAdminLogin() {
@@ -61,40 +72,21 @@
       event.preventDefault();
       const submitBtn = form.querySelector('button[type="submit"]');
       if (submitBtn) submitBtn.disabled = true;
-      let supabase;
-      try {
-        supabase = await ensureSupabaseClient();
-      } catch {
-        if (submitBtn) submitBtn.disabled = false;
-        return alert('Supabase সংযোগ হচ্ছে না। Admin login এর জন্য internet/Supabase connection লাগবে।');
-      }
       const email = form.querySelector('input[type="email"]').value.trim();
       const password = form.querySelector('input[type="password"]').value;
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      console.log('Admin login response:', {
-        hasUser: !!data?.user,
-        hasSession: !!data?.session,
-        error: error?.message || null,
-      });
-      if (error || !data?.user) {
+      const state = getState();
+      const validCustomAdmin = state.credentials?.admins?.find((admin) => admin.email === email && admin.password === password);
+      if (password !== state.credentials?.adminPassword && !validCustomAdmin) {
         if (submitBtn) submitBtn.disabled = false;
         return alert('Invalid admin credentials.');
       }
-      const state = getState();
-      await seedCloudWorkspaceFromLocal(supabase, state);
+      await seedCloudWorkspaceFromLocal(state);
       const session = createSession('admin', email || 'admin');
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       saveDevice(state, session);
-      const authSession = await waitForSession(supabase);
-      if (authSession?.user) {
-        supabase.from('profiles').upsert({
-          id: authSession.user.id,
-          role: 'admin',
-          full_name: email.split('@')[0] || 'Admin',
-        }).then(({ error: profileError }) => {
-          if (profileError) console.warn('Profile upsert failed, continuing with active session:', profileError.message || profileError);
-        });
-      }
+      const profileId = btoa(email.toLowerCase());
+      cloudflareRequest('/profiles/upsert', { method: 'POST', body: { id: profileId, role: 'admin', full_name: email.split('@')[0] || 'Admin' } })
+        .catch((error) => console.warn('Profile upsert failed:', error?.message || error));
       window.location.replace(DASHBOARD_URL);
     });
   }
@@ -102,14 +94,11 @@
   function bindAdminSignup() {
     const form = document.getElementById('adminSignupForm');
     if (!form) return;
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const state = getState();
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      let supabase;
-      try {
-        supabase = await ensureSupabaseClient();
-      } catch {
-        return alert('Supabase সংযোগ হচ্ছে না। কিছুক্ষণ পর আবার চেষ্টা করুন।');
-      }
       const inputs = form.querySelectorAll('input');
       const payload = {
         id: `admin-${Date.now()}`,
@@ -119,12 +108,16 @@
         phone: inputs[3].value.trim(),
         password: inputs[4].value,
       };
-      const { data, error } = await supabase.auth.signUp({ email: payload.email, password: payload.password });
-      if (error || !data?.user) return alert(error?.message || 'Failed to create admin account.');
+      state.credentials.admins.push(payload);
+      saveState(state);
+      alert('Admin account created. Please login.');
       const state = getState();
       state.credentials.admins.push(payload);
       saveState(state);
-      alert('Admin auth account created. Set this user as admin in Supabase profiles table, then login.');
+      const profileId = btoa(payload.email.toLowerCase());
+      cloudflareRequest('/profiles/upsert', { method: 'POST', body: { id: profileId, role: 'admin', full_name: payload.name || payload.email.split('@')[0] } })
+        .catch((error) => console.warn('Profile upsert failed:', error?.message || error));
+      alert('Admin account created. এখন login করুন।');
       window.location.href = 'admin-login.html';
     });
   }
@@ -206,35 +199,45 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
-  async function seedCloudWorkspaceFromLocal(supabase, localState) {
+  function buildCloudStateSnapshot(sourceState) {
+    const snapshot = JSON.parse(JSON.stringify(sourceState || {}));
+    if (Array.isArray(snapshot.attempts)) {
+      snapshot.attempts = snapshot.attempts.map((attempt) => ({
+        ...attempt,
+        omrPreview: '',
+        omr_preview: '',
+      }));
+    }
+    let raw = JSON.stringify(snapshot);
+    if (raw.length > 2_000_000 && Array.isArray(snapshot.questions)) {
+      snapshot.questions = snapshot.questions.map((question) => ({
+        ...question,
+        image: '',
+      }));
+    }
+    return snapshot;
+  }
+
+  async function seedCloudWorkspaceFromLocal(localState) {
     try {
-      const { data } = await supabase.from('app_settings').select('workspace_data').eq('id', 1).maybeSingle();
-      const hasCloud = data?.workspace_data && Object.keys(data.workspace_data || {}).length;
+      const payload = await cloudflareRequest('/workspace');
+      const row = payload?.data || null;
+      const cloudData = row?.workspace_data ? JSON.parse(row.workspace_data) : null;
+      const hasCloud = cloudData && Object.keys(cloudData || {}).length;
       if (hasCloud) return;
-      await supabase.from('app_settings').upsert({
-        id: 1,
-        workspace_data: localState,
-        dark_mode: !!localState.settings?.darkMode,
-        print_config: localState.settings?.printConfig || {},
-        credentials: localState.credentials || {},
+      const cloudState = buildCloudStateSnapshot(localState);
+      await cloudflareRequest('/workspace', {
+        method: 'PUT',
+        body: {
+          workspace_data: cloudState,
+          dark_mode: !!cloudState.settings?.darkMode,
+          print_config: cloudState.settings?.printConfig || {},
+          credentials: cloudState.credentials || {},
+        },
       });
     } catch {
       // ignore cloud seed issues
     }
-  }
-
-  async function ensureSupabaseClient() {
-    if (window.__supabaseClient) return window.__supabaseClient;
-    await ensureScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
-    if (!window.supabase?.createClient) throw new Error('Supabase SDK failed to load.');
-    window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    });
-    return window.__supabaseClient;
   }
 
   function ensureScript(src) {
