@@ -1191,12 +1191,17 @@
       const optionIndex = entry.optionsOrder[Number(entry.question.correct) || 0] ?? 0;
       return String.fromCharCode(65 + optionIndex);
     });
-    panel.innerHTML = `<h4>Live Print Preview</h4><div class="field-row"><label>Set Filter<select id="livePreviewSetFilter">${sets.map((item) => `<option value="${item.setCode}" ${item.setCode === activeSet.setCode ? 'selected' : ''}>${escapeHtml(item.setLabel)}</option>`).join('')}</select></label></div><p class="muted-copy">Drag questions/options to update preview order. Answer key updates instantly.</p><div class="live-preview-grid">${renderedQuestions.map((entry, index) => {
+    const paperQuestions = renderedQuestions.map((entry, index) => {
       const question = entry.question;
-      const subject = question.subject || exam.subject || '';
-      const options = entry.optionsOrder.map((sourceIndex, localIndex) => `<li draggable="true" data-option-drag="${index}::${sourceIndex}"><span class="option-label">${String.fromCharCode(65 + localIndex)}.</span><span>${formatMathForDisplay((question.options || [])[sourceIndex] || '', { subject })}</span></li>`).join('');
-      return `<article class="entity-card entity-card--stacked live-preview-card" draggable="true" data-question-drag="${index}"><div><strong>Q${index + 1}.</strong> ${formatMathForDisplay(question.question || question.stimulus || '', { subject })}</div>${question.type === 'mcq' ? `<ul class="option-list option-list--grid live-preview-options">${options}</ul>` : '<p class="muted-copy">CQ</p>'}</article>`;
-    }).join('')}</div><div class="table-wrap"><table class="result-table"><thead><tr><th>Q. No</th><th>Answer Key</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${item}</td></tr>`).join('')}</tbody></table></div>`;
+      const displaySubject = question.subject || exam.subject || '';
+      const options = entry.optionsOrder.map((sourceIndex, localIndex) => `<li draggable="true" data-option-drag="${index}::${sourceIndex}"><span class="option-label">${String.fromCharCode(65 + localIndex)}.</span> <span>${formatMathForDisplay((question.options || [])[sourceIndex] || '', { subject: displaySubject })}</span></li>`).join('');
+      if (question.type === 'cq') {
+        const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}</div>`).join('');
+        return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${subs || '<p class="muted-copy">No sub-question found.</p>'}</article>`;
+      }
+      return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><ul class="option-list option-list--grid live-preview-options">${options}</ul></article>`;
+    }).join('');
+    panel.innerHTML = `<h4>Live Print Preview</h4><div class="field-row"><label>Set Filter<select id="livePreviewSetFilter">${sets.map((item) => `<option value="${item.setCode}" ${item.setCode === activeSet.setCode ? 'selected' : ''}>${escapeHtml(item.setLabel)}</option>`).join('')}</select></label></div><p class="muted-copy">Print er moto exact question paper preview. Drag kore question/option position change korle answer key o update hobe.</p><section class="paper set-paper live-preview-paper"><div class="board-head board-head--${escapeAttr(activeSet.config.headerTheme || 'classic')}"><h1>${formatMathForDisplay(activeSet.config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(activeSet.setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(activeSet.config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(activeSet.config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(activeSet.config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(activeSet.config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${formatMathForDisplay(activeSet.config.instructions)}</p></div><div class="question-grid">${paperQuestions || '<p>No assigned question found.</p>'}</div></section><div class="table-wrap"><table class="result-table"><thead><tr><th>Q. No</th><th>Answer Key</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${item}</td></tr>`).join('')}</tbody></table></div>`;
     panel.querySelector('#livePreviewSetFilter')?.addEventListener('change', (event) => {
       livePreviewSelectedSet = event.target.value || '';
       renderLivePrintPreview(exam);
@@ -1442,8 +1447,34 @@
     return Array.from({ length: safeSetCount }, (_, setIndex) => {
       const setCode = config.setLabelStyle === 'numeric' ? String(setIndex + 1) : String.fromCharCode(65 + setIndex);
       const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${setCode}`;
-      const { setQuestions, answerKey } = buildQuestionSet(questions, config, { seed: `${exam.id}-${setCode}` });
+      const generated = buildQuestionSet(questions, config, { seed: `${exam.id}-${setCode}` });
+      const { setQuestions, answerKey } = applyLiveLayoutToSet(exam.id, setCode, generated.setQuestions);
       return { setIndex, setCode, setLabel, setQuestions, answerKey, config };
+    });
+  }
+
+  function applyLiveLayoutToSet(examId, setCode, setQuestions) {
+    const layout = livePreviewLayouts.get(`${examId}::${setCode}`);
+    if (!layout?.questions?.length) return { setQuestions, answerKey: deriveAnswerKeyFromQuestions(setQuestions) };
+    const normalized = layout.questions.map((entry) => {
+      const baseOptions = entry.question?.options || [];
+      const optionsOrder = entry.optionsOrder?.length ? entry.optionsOrder : baseOptions.map((_, idx) => idx);
+      const orderedOptions = optionsOrder.map((sourceIndex) => baseOptions[sourceIndex]).filter((item) => typeof item !== 'undefined');
+      const originalCorrect = Number(entry.question?.correct) || 0;
+      const nextCorrect = optionsOrder.indexOf(originalCorrect);
+      return {
+        ...entry.question,
+        options: orderedOptions.length ? orderedOptions : baseOptions,
+        correct: nextCorrect >= 0 ? nextCorrect : originalCorrect,
+      };
+    });
+    return { setQuestions: normalized, answerKey: deriveAnswerKeyFromQuestions(normalized) };
+  }
+
+  function deriveAnswerKeyFromQuestions(questions = []) {
+    return questions.map((question) => {
+      if (question.type !== 'mcq') return 'CQ';
+      return String.fromCharCode(65 + (Number(question.correct) || 0));
     });
   }
 
@@ -2454,6 +2485,30 @@
     XLSX.writeFile(book, className ? `${className.replace(/\s+/g, '-').toLowerCase()}-students.xlsx` : 'all-students.xlsx');
   }
 
+  function buildSolutionQuestionPaperMarkup(exam, attempt) {
+    if (!exam || !attempt) return '<p class="muted-copy">Solution comparison unavailable.</p>';
+    const variants = buildExamSetVariants(exam);
+    const targetSet = variants.find((item) => String(item.setCode).toUpperCase() === String(attempt.omrSet || '').toUpperCase()) || variants[0];
+    if (!targetSet) return '<p class="muted-copy">No set data found for this exam.</p>';
+    const markedAnswers = attempt.studentAnswers || [];
+    const questionsMarkup = targetSet.setQuestions.map((question, index) => {
+      const displaySubject = question.subject || exam.subject || '';
+      if (question.type !== 'mcq') {
+        return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><p class="muted-copy">CQ / written answer.</p></article>`;
+      }
+      const correct = targetSet.answerKey[index] || '-';
+      const marked = markedAnswers[index] || '-';
+      const options = (question.options || []).map((option, optionIndex) => {
+        const label = String.fromCharCode(65 + optionIndex);
+        const isMarked = label === marked;
+        const isCorrect = label === correct;
+        return `<li class="${isMarked ? 'is-marked' : ''} ${isCorrect ? 'is-correct' : ''}"><span class="option-label">${label}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span></li>`;
+      }).join('');
+      return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><ul class="option-list option-list--grid">${options}</ul><p class="solution-legend"><strong>Marked:</strong> ${escapeHtml(marked)} · <strong>Correct:</strong> ${escapeHtml(correct)}</p></article>`;
+    }).join('');
+    return `<section class="paper live-preview-paper"><div class="board-head board-head--${escapeAttr(targetSet.config.headerTheme || 'classic')}"><h2>${formatMathForDisplay(exam.title)} · Solution Sheet</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(targetSet.setLabel)}</span><span><strong>Student Marked vs Correct</strong></span></div></div><div class="question-grid">${questionsMarkup || '<p>No question found.</p>'}</div></section>`;
+  }
+
   function buildStudentProfileMarkup(studentId, selectedAttemptIds = [], activeAttemptId = '', activeSolutionAttemptId = '') {
     const student = state.students.find((item) => item.id === studentId);
     if (!student) return '<p class="muted-copy">Student not found.</p>';
@@ -2466,9 +2521,6 @@
     const detailBreakdown = detailAttempt?.answerBreakdown || [];
     const solutionAttempt = attempts.find((attempt) => attempt.id === activeSolutionAttemptId) || detailAttempt;
     const solutionExam = solutionAttempt ? findExam(solutionAttempt.examId) : null;
-    const solutionBreakdown = solutionAttempt?.studentAnswers?.length
-      ? buildAnswerBreakdown(solutionExam ? deriveStaticAnswerKey(solutionExam, solutionAttempt.omrSet || '') : [], solutionAttempt.studentAnswers)
-      : (solutionAttempt?.answerBreakdown || []);
     const detailBreakdownMarkup = detailBreakdown.length
       ? `<div class="table-wrap"><table class="result-table"><thead><tr><th>Q. No</th><th>Correct</th><th>Student</th><th>Status</th></tr></thead><tbody>${detailBreakdown.map((item) => `<tr><td>${item.qno}</td><td>${item.correct}</td><td>${item.marked}</td><td>${item.status}</td></tr>`).join('')}</tbody></table></div>`
       : '<p class="muted-copy">এই exam-এর answer breakdown পাওয়া যায়নি।</p>';
@@ -2479,7 +2531,7 @@
       return `<tr><td><input type="checkbox" data-attempt-select="${attempt.id}" ${selected.has(attempt.id) ? 'checked' : ''} /></td><td><button type="button" class="toolbar-button" data-attempt-view="${attempt.id}">Details</button></td><td><button type="button" class="toolbar-button" data-attempt-solution="${attempt.id}">Solution Sheet</button></td><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
     }).join('');
     const solutionMarkup = solutionAttempt
-      ? `<div class="solution-sheet-box"><h4>Solution Sheet (${escapeHtml(solutionAttempt.omrSet || 'Set ?')})</h4><p class="muted-copy"><strong>Exam:</strong> ${escapeHtml(solutionExam?.title || solutionAttempt.examId)}</p><div class="table-wrap"><table class="result-table"><thead><tr><th>Q. No</th><th>Student Marked</th><th>Correct Answer</th><th>Status</th></tr></thead><tbody>${solutionBreakdown.map((item) => `<tr><td>${item.qno}</td><td>${item.marked}</td><td>${item.correct}</td><td>${item.status}</td></tr>`).join('') || '<tr><td colspan="4">No solution comparison available.</td></tr>'}</tbody></table></div></div>`
+      ? `<div class="solution-sheet-box"><h4>Solution Sheet (${escapeHtml(solutionAttempt.omrSet || 'Set ?')})</h4><p class="muted-copy"><strong>Exam:</strong> ${escapeHtml(solutionExam?.title || solutionAttempt.examId)}</p>${buildSolutionQuestionPaperMarkup(solutionExam, solutionAttempt)}</div>`
       : '<p class="muted-copy">Solution sheet পাওয়া যায়নি।</p>';
     return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>Student Profile</h1><p>Exam List + Detailed Result View</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><h3>Given Exams</h3><p class="muted-copy">যে exam গুলো marksheet এ রাখতে চান সেগুলো checkbox দিয়ে select করুন।</p><div class="table-wrap"><table class="result-table"><thead><tr><th>Select</th><th>Details</th><th>Solution Sheet</th><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${examRows || '<tr><td colspan="7">No exam result yet.</td></tr>'}</tbody></table></div><h3>Selected Exam Details</h3>${detailAttempt ? `<p><strong>Exam:</strong> ${escapeHtml(detailExam?.title || detailAttempt.examId)} · <strong>Full Marks:</strong> ${detailAttempt.total} · <strong>Obtained:</strong> ${detailAttempt.score}</p><div class="student-detail-grid"><div>${detailOmr}<h4>Answer-wise Status</h4>${detailBreakdownMarkup}</div><div>${solutionMarkup}</div></div>` : '<p class="muted-copy">কোনো exam attempt পাওয়া যায়নি।</p>'}</section>`;
   }
