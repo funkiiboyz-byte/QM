@@ -754,7 +754,7 @@
       preview.innerHTML = emptyState('No exams available for live preview.');
       return;
     }
-    const sets = getOrCreateExamSets(examSelect.value, regenerate);
+    const sets = getOrCreateExamSets(examSelect.value, regenerate, true);
     setSelect.innerHTML = sets.map((item, index) => `<option value="${index}">${escapeHtml(item.label)}</option>`).join('');
     if (!setSelect.value) setSelect.value = '0';
     const activeSet = sets[Number(setSelect.value || 0)] || sets[0];
@@ -860,7 +860,7 @@
   function buildExamPaperHtml(examId) {
     const exam = findExam(examId);
     const config = state.settings.printConfig;
-    const safeSets = getOrCreateExamSets(examId, false);
+    const safeSets = getOrCreateExamSets(examId, false, false);
     const setMarkup = [];
     const answerSheets = [];
 
@@ -912,7 +912,7 @@
     return { setQuestions, answerKey };
   }
 
-  function getOrCreateExamSets(examId, regenerate = false) {
+  function getOrCreateExamSets(examId, regenerate = false, persist = false) {
     const exam = findExam(examId);
     if (!exam) return [];
     const config = state.settings.printConfig;
@@ -929,9 +929,11 @@
         answerKey: built.answerKey,
       });
     }
-    state.generatedSets = state.generatedSets || {};
-    state.generatedSets[examId] = sets;
-    saveState();
+    if (persist) {
+      state.generatedSets = state.generatedSets || {};
+      state.generatedSets[examId] = sets;
+      saveState();
+    }
     return sets;
   }
 
