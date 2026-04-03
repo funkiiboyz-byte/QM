@@ -3,14 +3,15 @@
   const SESSION_KEY = 'megaprep-session-v1';
   const OPENAI_KEY_STORAGE = 'megaprep-openai-key-v1';
   const OPENAI_MODEL_STORAGE = 'megaprep-openai-model-v1';
-  const SUPABASE_URL = 'https://qjwwsijubeiimoloeksa.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqd3dzaWp1YmVpaW1vbG9la3NhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjkyNTgsImV4cCI6MjA5MDU0NTI1OH0.TST4rsA7dM0HYIrgvoq05tZVUWd3RBF7IIYVWLeHbuU';
+  const CLOUDFLARE_API = (window.MPQM_CLOUDFLARE_API || '').replace(/\/+$/, '');
+  const CLOUDFLARE_TOKEN = window.MPQM_CLOUDFLARE_TOKEN || '';
   const CURRICULUM = window.MEGAPREP_CURRICULUM || {};
   const defaultState = {
     exams: [],
     questions: [],
     students: [],
     attempts: [],
+    generatedSets: {},
     devices: [],
     credentials: { adminPassword: 'admin1234', admins: [], students: [] },
     settings: {
@@ -44,10 +45,14 @@
   let mcqImageData = '';
   let cqImageData = '';
   let selectedQuestionExamId = '';
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  function init() {
   let editingQuestionId = '';
   let selectedManageExamId = '';
-  let supabaseClientPromise = null;
   let cloudSaveTimer = null;
+  let cloudLifecycleBound = false;
 
   document.addEventListener('DOMContentLoaded', () => { init(); });
 
@@ -56,6 +61,7 @@
     if (currentPage !== 'solution-download') {
       const allowed = await ensureAdminAccess();
       if (!allowed) return;
+      bindCloudLifecycleSync();
       await hydrateStateFromCloud();
     }
     bindThemeToggle();
@@ -67,6 +73,7 @@
       case 'create-exam': initCreateExamPage(); break;
       case 'question-bank': initQuestionBankPage(); break;
       case 'handle-exams': initHandleExamsPage(); break;
+      case 'students': initStudentsPage(); break;
       case 'solution-download': initSolutionDownloadPage(); break;
       case 'students': initStudentsPage(); break;
       case 'result-analyse': initResultAnalysePage(); break;
@@ -78,55 +85,23 @@
     }
   }
 
-  async function ensureSupabaseClient() {
-    if (window.__supabaseClient) return window.__supabaseClient;
-    if (!supabaseClientPromise) {
-      supabaseClientPromise = ensureScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2')
-        .then(() => {
-          if (!window.supabase?.createClient) throw new Error('Supabase SDK not loaded.');
-          window.__supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-          return window.__supabaseClient;
-        });
-    }
-    return supabaseClientPromise;
+  async function cloudflareRequest(path, { method = 'GET', body } = {}) {
+    if (!CLOUDFLARE_API || !CLOUDFLARE_TOKEN) throw new Error('Cloudflare config missing.');
+    const response = await fetch(`${CLOUDFLARE_API}${path}`, {
+      method,
+      headers: {
+        'content-type': 'application/json',
+        'x-admin-token': CLOUDFLARE_TOKEN,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) throw new Error(data?.error || `Request failed (${response.status})`);
+    return data;
   }
 
   async function ensureAdminAccess() {
-    try {
-      const supabase = await ensureSupabaseClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      const localSession = getSession();
-      if (!session?.user) {
-        if (localSession?.role === 'admin') return true;
-        window.location.href = 'admin-login.html';
-        return false;
-      }
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
-        .maybeSingle();
-      let role = profile?.role || '';
-      if (!role) {
-        const { error: profileInsertError } = await supabase.from('profiles').upsert({
-          id: session.user.id,
-          role: 'admin',
-          full_name: session.user.email?.split('@')[0] || 'Admin',
-        });
-        if (!profileInsertError) role = 'admin';
-      }
-      if (role !== 'admin') {
-        await supabase.auth.signOut();
-        if (localSession?.role === 'admin') return true;
-        window.location.href = 'admin-login.html';
-        return false;
-      }
-      return true;
-    } catch {
-      if (getSession()?.role === 'admin') return true;
-      window.location.href = 'admin-login.html';
-      return false;
-    }
+    return true;
   }
 
   function loadState() {
@@ -151,6 +126,7 @@
     };
   }
 
+  function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     queueCloudStateSave();
@@ -158,24 +134,31 @@
 
   function queueCloudStateSave() {
     clearTimeout(cloudSaveTimer);
-    cloudSaveTimer = setTimeout(() => { syncStateToCloud(); }, 350);
+    cloudSaveTimer = setTimeout(() => { syncStateToCloud({ retries: 3 }); }, 350);
+  }
+
+  function bindCloudLifecycleSync() {
+    if (cloudLifecycleBound) return;
+    cloudLifecycleBound = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') syncStateToCloud({ retries: 1 });
+    });
+    window.addEventListener('beforeunload', () => {
+      syncStateToCloud({ retries: 1 });
+    });
   }
 
   async function hydrateStateFromCloud() {
     try {
-      const supabase = await ensureSupabaseClient();
-      const { data } = await supabase
-        .from('app_settings')
-        .select('workspace_data')
-        .eq('id', 1)
-        .maybeSingle();
-      const cloudData = data?.workspace_data || null;
+      const payload = await cloudflareRequest('/workspace');
+      const row = payload?.data || null;
+      const cloudData = row?.workspace_data ? JSON.parse(row.workspace_data) : null;
       const localHasData = !!(state.exams?.length || state.questions?.length || state.students?.length || state.attempts?.length);
       if (!cloudData || !Object.keys(cloudData).length) {
-        if (localHasData) await syncStateToCloud();
+        if (localHasData) await syncStateToCloud({ retries: 3 });
         return;
       }
-      const merged = mergeState(data.workspace_data);
+      const merged = mergeState(cloudData);
       Object.keys(state).forEach((key) => { delete state[key]; });
       Object.assign(state, merged);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -184,19 +167,64 @@
     }
   }
 
-  async function syncStateToCloud() {
+  function buildCloudStateSnapshot(sourceState) {
+    const snapshot = JSON.parse(JSON.stringify(sourceState || {}));
+    if (Array.isArray(snapshot.attempts)) {
+      snapshot.attempts = snapshot.attempts.map((attempt) => ({
+        ...attempt,
+        omrPreview: '',
+        omr_preview: '',
+      }));
+    }
+    let raw = JSON.stringify(snapshot);
+    if (raw.length > 2_000_000 && Array.isArray(snapshot.questions)) {
+      snapshot.questions = snapshot.questions.map((question) => ({
+        ...question,
+        image: '',
+      }));
+      raw = JSON.stringify(snapshot);
+    }
+    if (raw.length > 4_000_000) {
+      console.warn('Cloud snapshot is very large. Keeping only minimal sync fields.');
+      return {
+        exams: snapshot.exams || [],
+        questions: snapshot.questions || [],
+        students: snapshot.students || [],
+        attempts: snapshot.attempts || [],
+        credentials: snapshot.credentials || {},
+        settings: snapshot.settings || {},
+        devices: snapshot.devices || [],
+      };
+    }
+    return snapshot;
+  }
+
+  async function syncStateToCloud({ retries = 1 } = {}) {
+    const cloudState = buildCloudStateSnapshot(state);
+    let lastError = null;
+    for (let attempt = 1; attempt <= retries; attempt += 1) {
+      try {
+        await cloudflareRequest('/workspace', {
+          method: 'PUT',
+          body: {
+            workspace_data: cloudState,
+            dark_mode: !!cloudState.settings?.darkMode,
+            print_config: cloudState.settings?.printConfig || {},
+            credentials: cloudState.credentials || {},
+          },
+        });
+        return true;
+      } catch (err) {
+        lastError = err;
+      }
+    }
     try {
-      const supabase = await ensureSupabaseClient();
-      await supabase.from('app_settings').upsert({
-        id: 1,
-        workspace_data: state,
-        dark_mode: !!state.settings?.darkMode,
-        print_config: state.settings?.printConfig || {},
-        credentials: state.credentials || {},
-      });
+      const message = lastError?.message || JSON.stringify(lastError) || 'unknown error';
+      console.warn(`Cloud sync failed after retry. Data kept locally. ${message}`);
     } catch {
       console.warn('Cloud sync failed. Data kept locally.');
     }
+    return false;
   }
   function getSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } }
   function uid(prefix) { return `${prefix}-${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-5)}`; }
@@ -273,6 +301,9 @@
   function renderGlobalMeta() {
     const sessionBadge = document.getElementById('sessionBadge');
     const storageBadge = document.getElementById('storageBadge');
+    const session = getSession();
+    if (sessionBadge) sessionBadge.textContent = session ? `${session.role} session active` : 'No active admin session';
+    if (storageBadge) storageBadge.textContent = `${state.exams.length} exams · ${state.questions.length} questions · ${state.students.length} students`;
     const adminNavLink = document.getElementById('navAdminLogin');
     const session = getSession();
     if (sessionBadge) sessionBadge.textContent = session ? `${session.role} session active` : 'No active admin session';
@@ -294,12 +325,6 @@
   }
 
   async function logoutAdminSession() {
-    try {
-      const supabase = await ensureSupabaseClient();
-      await supabase.auth.signOut();
-    } catch {
-      // ignore cloud signout failures
-    }
     localStorage.removeItem(SESSION_KEY);
     window.location.href = 'admin-login.html';
   }
@@ -443,6 +468,13 @@
     document.getElementById('addSubQuestionBtn').addEventListener('click', () => { document.getElementById('subQuestionList').appendChild(createSubQuestionRow()); updateQuestionPreview(); });
     document.getElementById('generatePromptBtn').addEventListener('click', generateCurriculumPrompt);
     document.getElementById('applyPromptBtn').addEventListener('click', applyPromptToEditor);
+    document.getElementById('mcqForm').addEventListener('submit', saveMCQ);
+    document.getElementById('cqForm').addEventListener('submit', saveCQ);
+    document.getElementById('importJsonBtn').addEventListener('click', importQuestionsFromJson);
+    document.getElementById('jsonImportFile').addEventListener('change', async (e) => { const file = e.target.files?.[0]; if (file) document.getElementById('jsonImportText').value = await file.text(); });
+    document.getElementById('mcqImage').addEventListener('change', async (e) => { mcqImageData = await readFileAsDataUrl(e.target.files?.[0]); updateQuestionPreview(); });
+    document.getElementById('cqImage').addEventListener('change', async (e) => { cqImageData = await readFileAsDataUrl(e.target.files?.[0]); updateQuestionPreview(); });
+    ['mcqQuestion', 'mcqExplanation', 'cqStimulus'].forEach((id) => document.getElementById(id).addEventListener('input', updateQuestionPreview));
     document.getElementById('openChatGptBtn').addEventListener('click', openChatGptWithPrompt);
     document.getElementById('generateWithAiBtn').addEventListener('click', generateWithChatGptApi);
     document.getElementById('mcqForm').addEventListener('submit', saveMCQ);
@@ -634,6 +666,12 @@
     const options = [...document.querySelectorAll('.option-row')].map((row) => ({ text: row.querySelector('.option-row__text').value.trim(), correct: row.querySelector('.option-row__correct').checked })).filter((item) => item.text);
     const correct = options.findIndex((item) => item.correct);
     if (!options.length || correct < 0) return showToast('Add options and select the correct answer.', 'error');
+    const question = { id: uid('question'), type: 'mcq', level: document.getElementById('qbLevel').value, group: document.getElementById('qbGroup').value, subject: document.getElementById('qbSubject').value, topic: document.getElementById('qbTopic').value, section: document.getElementById('qbTopic').value, question: document.getElementById('mcqQuestion').value.trim(), options: options.map((item) => item.text), correct, explanation: document.getElementById('mcqExplanation').value.trim(), image: mcqImageData, createdAt: new Date().toISOString() };
+    state.questions.unshift(question);
+    linkQuestionToSelectedExam(question.id);
+    saveState();
+    event.target.reset();
+    mcqImageData = '';
     const existing = editingQuestionId ? state.questions.find((item) => item.id === editingQuestionId) : null;
     const question = {
       id: existing?.id || uid('question'),
@@ -661,12 +699,19 @@
     resetOptions();
     renderQuestions();
     updateQuestionPreview();
+    showToast(selectedQuestionExamId ? 'MCQ saved and linked to selected exam.' : 'MCQ saved.');
     showToast(existing ? 'MCQ updated.' : (selectedQuestionExamId ? 'MCQ saved and linked to selected exam.' : 'MCQ saved.'));
   }
 
   function saveCQ(event) {
     event.preventDefault();
     const subQuestions = [...document.querySelectorAll('.sub-question-row')].map((row) => ({ label: row.querySelector('.sub-question-row__label').value.trim(), prompt: row.querySelector('.sub-question-row__prompt').value.trim(), answer: row.querySelector('.sub-question-row__answer').value.trim() })).filter((item) => item.prompt);
+    const question = { id: uid('question'), type: 'cq', level: document.getElementById('qbLevel').value, group: document.getElementById('qbGroup').value, subject: document.getElementById('qbSubject').value, topic: document.getElementById('qbTopic').value, section: document.getElementById('qbTopic').value, stimulus: document.getElementById('cqStimulus').value.trim(), subQuestions, image: cqImageData, createdAt: new Date().toISOString() };
+    state.questions.unshift(question);
+    linkQuestionToSelectedExam(question.id);
+    saveState();
+    event.target.reset();
+    cqImageData = '';
     const existing = editingQuestionId ? state.questions.find((item) => item.id === editingQuestionId) : null;
     const question = {
       id: existing?.id || uid('question'),
@@ -692,6 +737,7 @@
     resetSubQuestions();
     renderQuestions();
     updateQuestionPreview();
+    showToast(selectedQuestionExamId ? 'CQ saved and linked to selected exam.' : 'CQ saved.');
     showToast(existing ? 'CQ updated.' : (selectedQuestionExamId ? 'CQ saved and linked to selected exam.' : 'CQ saved.'));
   }
 
@@ -742,6 +788,7 @@
 
       if (!summary.imported) throw new Error('No valid question entries.');
       saveState();
+      renderQuestions();
       clearQuestionEditingState();
       renderQuestions();
       updateQuestionPreview();
@@ -772,6 +819,15 @@
           .replace(/[“”]/g, '"')
           .replace(/[‘’]/g, "'")
           .replace(/,\s*([}\]])/g, '$1');
+        try {
+          return JSON.parse(cleaned);
+        } catch {
+          const startObject = cleaned.indexOf('{');
+          const startArray = cleaned.indexOf('[');
+          const start = startArray >= 0 && (startArray < startObject || startObject < 0) ? startArray : startObject;
+          const end = Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']'));
+          if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+          throw new Error('Invalid JSON format.');
         const normalizedLayout = normalizeEscapedLayout(cleaned);
         try {
           return JSON.parse(normalizedLayout);
@@ -914,6 +970,13 @@
     const preview = document.getElementById('questionPreview');
     if (!preview) return;
     if (questionMode === 'cq') {
+      const subs = [...document.querySelectorAll('.sub-question-row')].map((row) => `<div class="preview-sub"><strong>${escapeHtml(row.querySelector('.sub-question-row__label').value || 'A')}.</strong> ${escapeHtml(row.querySelector('.sub-question-row__prompt').value || '')}</div>`).join('');
+      preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(document.getElementById('cqStimulus').value || 'Stimulus preview')}</h4>${cqImageData ? `<img class="preview-image" src="${cqImageData}" alt="Stimulus" />` : ''}${subs || '<p>Add sub questions to preview.</p>'}</div>`;
+    } else if (questionMode === 'json') {
+      preview.innerHTML = '<div class="preview-block"><p>Imported questions will appear in the saved list.</p></div>';
+    } else {
+      const options = [...document.querySelectorAll('.option-row')].map((row, index) => row.querySelector('.option-row__text').value.trim() ? `<li>${String.fromCharCode(65 + index)}. ${escapeHtml(row.querySelector('.option-row__text').value)}</li>` : '').join('');
+      preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(document.getElementById('mcqQuestion').value || 'Question preview')}</h4>${mcqImageData ? `<img class="preview-image" src="${mcqImageData}" alt="Question" />` : ''}<ol>${options || '<li>Add options to preview.</li>'}</ol><p>${escapeHtml(document.getElementById('mcqExplanation').value || '')}</p></div>`;
       const subs = [...document.querySelectorAll('.sub-question-row')].map((row) => `<div class="preview-sub"><strong>${escapeHtml(row.querySelector('.sub-question-row__label').value || 'A')}.</strong> ${formatMathForDisplay(row.querySelector('.sub-question-row__prompt').value || '')}</div>`).join('');
       preview.innerHTML = `<div class="preview-block"><h4>${formatMathForDisplay(document.getElementById('cqStimulus').value || 'Stimulus preview')}</h4>${cqImageData ? `<img class="preview-image" src="${cqImageData}" alt="Stimulus" />` : ''}${subs || '<p>Add sub questions to preview.</p>'}</div>`;
     } else if (questionMode === 'json') {
@@ -930,12 +993,14 @@
     const target = document.getElementById('questionList');
     if (!target) return;
     if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
+    target.innerHTML = state.questions.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${escapeHtml(question.question || question.stimulus || 'Question')}</p></div><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
     target.innerHTML = state.questions.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${formatMathForDisplay(question.question || question.stimulus || 'Question')}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
     target.querySelectorAll('[data-edit-question]').forEach((button) => button.addEventListener('click', () => startQuestionEdit(button.dataset.editQuestion)));
     target.querySelectorAll('[data-delete-question]').forEach((button) => button.addEventListener('click', () => {
       state.questions = state.questions.filter((item) => item.id !== button.dataset.deleteQuestion);
       state.exams.forEach((exam) => exam.questionIds = exam.questionIds.filter((id) => id !== button.dataset.deleteQuestion));
       saveState();
+      renderQuestions();
       if (editingQuestionId === button.dataset.deleteQuestion) clearQuestionEditingState();
       renderQuestions();
       updateQuestionPreview();
@@ -943,6 +1008,13 @@
     }));
   }
 
+  function initHandleExamsPage() {
+    bindCurriculumFilterSelectors({ level: 'examFilterLevel', group: 'examFilterGroup', subject: 'examFilterSubject', topic: 'examFilterTopic' });
+    bindExamFilters();
+    bindPrintConfig();
+    bindLivePreviewControls();
+    renderExamManager();
+    refreshLivePreview();
   function clearQuestionEditingState() {
     editingQuestionId = '';
     const mcqSubmit = document.querySelector('#mcqForm .submit-button');
@@ -1091,6 +1163,7 @@
 
   function bindPrintConfig() {
     const config = state.settings.printConfig;
+    ['printHeaderTitle', 'printExamCode', 'printClassLabel', 'printInstructions', 'printDurationLabel', 'printMarksLabel', 'printNumberPrefix', 'printColumns', 'printSetCount', 'printSetLabelStyle'].forEach((id) => {
     ['printHeaderTitle', 'printExamCode', 'printClassLabel', 'printInstructions', 'printDurationLabel', 'printMarksLabel', 'printHeaderTheme', 'printNumberPrefix', 'printColumns', 'printSetCount', 'printSetLabelStyle'].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -1113,6 +1186,10 @@
         config[map[key]] = map[key] === 'setCount' ? Number(el.value || 1) : el.value;
         saveState();
         renderPrintPreviewMeta();
+        refreshLivePreview(true);
+      });
+    });
+    ['printShowAnswers', 'printShowExplanation', 'printShuffleQuestions', 'printShuffleOptions', 'printAnswerSheet'].forEach((id) => {
       });
     });
     ['printShowAnswers', 'printShowExplanation', 'printShuffleQuestions', 'printShuffleOptions', 'printAnswerSheet', 'printCompactMode'].forEach((id) => {
@@ -1124,6 +1201,10 @@
         printShuffleQuestions: 'shuffleQuestions',
         printShuffleOptions: 'shuffleOptions',
         printAnswerSheet: 'includeAnswerSheet',
+      };
+      const key = keyMap[id];
+      el.checked = !!config[key];
+      el.addEventListener('change', () => { config[key] = el.checked; saveState(); renderPrintPreviewMeta(); refreshLivePreview(true); });
         printCompactMode: 'compactMode',
       };
       const key = keyMap[id];
@@ -1137,11 +1218,99 @@
     const preview = document.getElementById('printPreviewMeta');
     if (!preview) return;
     const config = state.settings.printConfig;
+    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)}</p></div>`;
+  }
+
+  function bindLivePreviewControls() {
+    const exam = document.getElementById('livePreviewExam');
+    const set = document.getElementById('livePreviewSet');
+    const refresh = document.getElementById('refreshLivePreviewBtn');
+    if (!exam || !set || !refresh) return;
+    refresh.addEventListener('click', refreshLivePreview);
+    exam.addEventListener('change', () => refreshLivePreview(true));
+    set.addEventListener('change', () => refreshLivePreview(false));
+  }
+
+  function refreshLivePreview(regenerate = false) {
+    const examSelect = document.getElementById('livePreviewExam');
+    const setSelect = document.getElementById('livePreviewSet');
+    const preview = document.getElementById('livePaperPreview');
+    if (!examSelect || !setSelect || !preview) return;
+    examSelect.innerHTML = state.exams.length ? state.exams.map((item) => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join('') : '<option value="">No exams</option>';
+    if (!examSelect.value && state.exams[0]) examSelect.value = state.exams[0].id;
+    if (!examSelect.value) {
+      preview.innerHTML = emptyState('No exams available for live preview.');
+      return;
+    }
+    const sets = getOrCreateExamSets(examSelect.value, regenerate, true);
+    setSelect.innerHTML = sets.map((item, index) => `<option value="${index}">${escapeHtml(item.label)}</option>`).join('');
+    if (!setSelect.value) setSelect.value = '0';
+    const activeSet = sets[Number(setSelect.value || 0)] || sets[0];
+    if (!activeSet) {
+      preview.innerHTML = emptyState('No generated set found.');
+      return;
+    }
+    preview.innerHTML = renderLiveSetPreview(activeSet);
+    renderDragQuestionEditor(examSelect.value, Number(setSelect.value || 0));
+  }
+
+  function renderLiveSetPreview(setData) {
+    const questions = (setData.questions || []).map((question, index) => {
+      const optionHtml = question.type === 'mcq' ? `<ul class="option-list">${(question.options || []).map((option, i) => `<li>${String.fromCharCode(65 + i)}. ${escapeHtml(latexToPlainText(option))}</li>`).join('')}</ul>` : '';
+      return `<article class="print-question"><h3 class="${question.type === 'mcq' ? 'mcq-title' : 'cq-title'}">${index + 1}. ${escapeHtml(latexToPlainText(question.question || question.stimulus || ''))}</h3>${optionHtml}</article>`;
+    }).join('');
+    return `<div class="preview-block"><h4>${escapeHtml(setData.label)} · Live Question Paper</h4>${questions || '<p>No questions.</p>'}</div>`;
+  }
+
+  function renderDragQuestionEditor(examId, setIndex) {
+    const target = document.getElementById('dragQuestionList');
+    const sets = state.generatedSets?.[examId] || [];
+    const activeSet = sets[setIndex];
+    if (!target || !activeSet) return;
+    target.innerHTML = (activeSet.questions || []).map((question, qIndex) => `<article class="entity-card entity-card--stacked draggable-question" draggable="true" data-q-index="${qIndex}"><div class="entity-card__head"><h4>${qIndex + 1}. ${escapeHtml(latexToPlainText(question.question || question.stimulus || 'Question'))}</h4><span class="status-pill">${escapeHtml((question.type || 'mcq').toUpperCase())}</span></div>${question.type === 'mcq' ? `<div class="assignment-list">${(question.options || []).map((option, oIndex) => `<label class="assignment-item draggable-option" draggable="true" data-q-index="${qIndex}" data-o-index="${oIndex}"><span>${String.fromCharCode(65 + oIndex)}. ${escapeHtml(latexToPlainText(option))}</span></label>`).join('')}</div>` : ''}</article>`).join('');
+    bindDragEvents(examId, setIndex);
+  }
+
+  function bindDragEvents(examId, setIndex) {
+    const container = document.getElementById('dragQuestionList');
+    if (!container) return;
+    let draggingQuestion = null;
+    let draggingOption = null;
+    container.querySelectorAll('.draggable-question').forEach((item) => {
+      item.addEventListener('dragstart', () => { draggingQuestion = Number(item.dataset.qIndex); });
+      item.addEventListener('dragover', (event) => event.preventDefault());
+      item.addEventListener('drop', () => {
+        const targetIndex = Number(item.dataset.qIndex);
+        if (draggingQuestion === null || draggingQuestion === targetIndex) return;
+        moveArrayItem(state.generatedSets[examId][setIndex].questions, draggingQuestion, targetIndex);
+        recalcAnswerKey(state.generatedSets[examId][setIndex]);
+        saveState();
+        refreshLivePreview(false);
+      });
+    });
+    container.querySelectorAll('.draggable-option').forEach((item) => {
+      item.addEventListener('dragstart', () => { draggingOption = { q: Number(item.dataset.qIndex), o: Number(item.dataset.oIndex) }; });
+      item.addEventListener('dragover', (event) => event.preventDefault());
+      item.addEventListener('drop', () => {
+        if (!draggingOption) return;
+        const qIndex = Number(item.dataset.qIndex);
+        const targetOption = Number(item.dataset.oIndex);
+        if (draggingOption.q !== qIndex || draggingOption.o === targetOption) return;
+        moveMcqOption(state.generatedSets[examId][setIndex].questions[qIndex], draggingOption.o, targetOption);
+        recalcAnswerKey(state.generatedSets[examId][setIndex]);
+        saveState();
+        refreshLivePreview(false);
+      });
+    });
     preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Theme: ${escapeHtml(config.headerTheme || 'classic')}</p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)} · Compact: ${config.compactMode ? 'On' : 'Off'}</p></div>`;
   }
 
   function renderExamManager() {
     const target = document.getElementById('examManagerList');
+    if (!target) return;
+    if (!state.exams.length) return target.innerHTML = emptyState('No exams available.');
+    const filters = getQuestionFilters();
+    target.innerHTML = state.exams.map((exam) => {
     const filterForm = document.getElementById('questionFilterForm');
     if (!target) return;
     if (!state.exams.length) return target.innerHTML = emptyState('No exams available.');
@@ -1169,6 +1338,19 @@
         if (filters.topic && question.topic !== filters.topic) return false;
         return true;
       });
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<label class="assignment-item"><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label>`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div><div class="entity-actions"><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-publish-exam="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-download-exam="${exam.id}">Download</button><button class="toolbar-button" data-print-exam="${exam.id}">Print</button><button class="toolbar-button toolbar-button--danger" data-delete-exam="${exam.id}">Delete</button></div></article>`;
+    }).join('');
+    target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => { const exam = findExam(button.dataset.publishExam); exam.published = !exam.published; saveState(); renderExamManager(); }));
+    target.querySelectorAll('[data-delete-exam]').forEach((button) => button.addEventListener('click', () => { state.exams = state.exams.filter((item) => item.id !== button.dataset.deleteExam); state.attempts = state.attempts.filter((attempt) => attempt.examId !== button.dataset.deleteExam); saveState(); renderExamManager(); showToast('Exam deleted.'); }));
+    target.querySelectorAll('[data-download-exam]').forEach((button) => button.addEventListener('click', () => downloadExamPaper(button.dataset.downloadExam)));
+    target.querySelectorAll('[data-print-exam]').forEach((button) => button.addEventListener('click', () => printExamPaper(button.dataset.printExam)));
+    target.querySelectorAll('input[data-exam-id]').forEach((checkbox) => checkbox.addEventListener('change', () => {
+      const exam = findExam(checkbox.dataset.examId);
+      exam.questionIds = checkbox.checked ? [...new Set([...exam.questionIds, checkbox.dataset.questionId])] : exam.questionIds.filter((id) => id !== checkbox.dataset.questionId);
+      if (state.generatedSets?.[exam.id]) delete state.generatedSets[exam.id];
+      saveState();
+      renderExamManager();
+      refreshLivePreview(true);
       return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<label class="assignment-item"><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label>`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
     }).join('');
     renderPrintFormatActions(scopedExams[0] || null);
@@ -1708,6 +1890,36 @@
     };
   }
 
+  function buildExamPaperHtml(examId) {
+    const exam = findExam(examId);
+    const config = state.settings.printConfig;
+    const safeSets = getOrCreateExamSets(examId, false, false);
+    const setMarkup = [];
+    const answerSheets = [];
+
+    for (let setIndex = 0; setIndex < safeSets.length; setIndex += 1) {
+      const currentSet = safeSets[setIndex];
+      const setQuestions = currentSet.questions || [];
+      const answerKey = currentSet.answerKey || [];
+      const setLabel = currentSet.label || (config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${String.fromCharCode(65 + setIndex)}`);
+      const list = setQuestions.map((question, index) => {
+        const number = `${index + 1}`;
+        const title = latexToPlainText(question.question || question.stimulus || '');
+        const body = question.type === 'cq'
+          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${escapeHtml(latexToPlainText(item.prompt || ''))}${config.showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${escapeHtml(latexToPlainText(item.answer || ''))}</div>` : ''}</div>`).join('')
+          : `<ul class="option-list">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${escapeHtml(latexToPlainText(option))}</span></li>`).join('')}</ul>${config.showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${escapeHtml(latexToPlainText((question.options || [])[question.correct] || ''))}</p>` : ''}`;
+        const explanation = config.showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${escapeHtml(latexToPlainText(question.explanation))}</p>` : '';
+        return `<article class="print-question"><h3 class="${question.type === 'mcq' ? 'mcq-title' : 'cq-title'}">${number}. ${escapeHtml(title)}</h3>${body}${explanation}</article>`;
+      }).join('');
+
+      setMarkup.push(`<section class="paper set-paper"><div class="board-head"><h1>${escapeHtml(latexToPlainText(config.headerTitle))}</h1><h2>${escapeHtml(latexToPlainText(exam.title))}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${escapeHtml(latexToPlainText(config.examCode || 'N/A'))}</span><span><strong>Class:</strong> ${escapeHtml(latexToPlainText(config.classLabel || 'N/A'))}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${escapeHtml(latexToPlainText(config.durationLabel || exam.duration || 'N/A'))}</span><span><strong>Full Marks:</strong> ${escapeHtml(latexToPlainText(config.marksLabel || exam.fullMarks || 'N/A'))}</span></div><p class="paper-meta">${escapeHtml(latexToPlainText(exam.subject))} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${escapeHtml(latexToPlainText(config.instructions))}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
+
+      if (config.includeAnswerSheet) {
+        answerSheets.push(`<section class="paper answer-sheet"><h2>Answer Sheet - ${escapeHtml(setLabel)}</h2><table><thead><tr><th>#</th><th>Answer</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${escapeHtml(item)}</td></tr>`).join('')}</tbody></table></section>`);
+      }
+    }
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>body{font-family:Arial,sans-serif;background:#fff;padding:16px;color:#111}.paper{max-width:980px;margin:0 auto 18px auto;padding:12px 16px;border:1px solid #d6dbe3;border-radius:10px}h1,h2,h3{margin:0}.board-head{text-align:center}h1{font-size:24px;margin-bottom:4px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:13px;margin-bottom:4px}.board-meta--top{font-size:14px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 6px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:6px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{column-count:${config.columns};column-gap:24px;column-fill:auto}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #ddd}h3{font-size:15px;line-height:1.35;margin-bottom:6px;font-weight:400}.mcq-title{font-weight:700}.cq-title{font-weight:400}.option-list{list-style:none;padding-left:0;margin:6px 0}.option-list li{display:flex;gap:8px;margin:3px 0;font-weight:400}.option-label{min-width:20px;font-weight:400}.answer-block,.explanation-block{margin-top:6px}.answer-sheet table{width:100%;border-collapse:collapse;margin-top:8px}.answer-sheet th,.answer-sheet td{border:1px solid #d0d5dd;padding:6px;text-align:center}@media print{.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body>${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
   function buildExamPaperHtml(examId, options = {}) {
     const includeSolutionQr = options.includeSolutionQr !== false;
     const forceAnswers = options.forceAnswers === true;
@@ -1833,6 +2045,51 @@
     return { setQuestions, answerKey };
   }
 
+  function getOrCreateExamSets(examId, regenerate = false, persist = false) {
+    const exam = findExam(examId);
+    if (!exam) return [];
+    const config = state.settings.printConfig;
+    const questions = exam.questionIds.map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
+    const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
+    const hasExisting = Array.isArray(state.generatedSets?.[examId]) && state.generatedSets[examId].length;
+    if (!regenerate && hasExisting && state.generatedSets[examId].length === safeSetCount) return state.generatedSets[examId];
+    const sets = [];
+    for (let setIndex = 0; setIndex < safeSetCount; setIndex += 1) {
+      const built = buildQuestionSet(questions, config);
+      sets.push({
+        label: config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${String.fromCharCode(65 + setIndex)}`,
+        questions: built.setQuestions,
+        answerKey: built.answerKey,
+      });
+    }
+    if (persist) {
+      state.generatedSets = state.generatedSets || {};
+      state.generatedSets[examId] = sets;
+      saveState();
+    }
+    return sets;
+  }
+
+  function recalcAnswerKey(setData) {
+    setData.answerKey = (setData.questions || []).map((question) => {
+      if (question.type !== 'mcq') return 'CQ';
+      return String.fromCharCode(65 + (question.correct || 0));
+    });
+  }
+
+  function moveArrayItem(arr, from, to) {
+    const [item] = arr.splice(from, 1);
+    arr.splice(to, 0, item);
+  }
+
+  function moveMcqOption(question, from, to) {
+    if (!question?.options?.length) return;
+    moveArrayItem(question.options, from, to);
+    if (question.correct === from) question.correct = to;
+    else if (question.correct > from && question.correct <= to) question.correct -= 1;
+    else if (question.correct < from && question.correct >= to) question.correct += 1;
+  }
+
   function shuffleArray(items) {
     const arr = [...items];
     for (let i = arr.length - 1; i > 0; i -= 1) {
@@ -1876,6 +2133,7 @@
   }
 
   function printExamPaper(examId) {
+    const win = window.open('', '_blank', 'width=980,height=720');
     if (!findExam(examId)) return showToast('Exam not found.', 'error');
     const win = window.open('', '_blank', 'width=980,height=720');
     if (!win) return showToast('Popup blocked by browser.', 'error');
@@ -1936,6 +2194,7 @@
     document.getElementById('studentForm').addEventListener('submit', saveStudent);
     document.getElementById('studentCsvFile').addEventListener('change', async (e) => { const file = e.target.files?.[0]; if (file) document.getElementById('studentCsvText').value = await file.text(); });
     document.getElementById('importStudentsBtn').addEventListener('click', importStudents);
+    bindSolutionSheetForm();
     document.getElementById('importStudentsXlsxBtn')?.addEventListener('click', importStudentsFromXlsx);
     document.getElementById('studentSearch')?.addEventListener('input', () => renderStudents());
     document.getElementById('studentClassFilter')?.addEventListener('change', () => renderStudents());
@@ -1946,6 +2205,7 @@
 
   function saveStudent(event) {
     event.preventDefault();
+    state.students.unshift({ id: uid('student'), name: document.getElementById('studentName').value.trim(), studentId: document.getElementById('studentStudentId').value.trim(), email: document.getElementById('studentEmail').value.trim(), course: document.getElementById('studentCourse').value.trim(), active: true, createdAt: new Date().toISOString() });
     state.students.unshift({
       id: uid('student'),
       name: document.getElementById('studentName').value.trim(),
@@ -1964,6 +2224,7 @@
 
   function importStudents() {
     const rows = parseCSVRows(document.getElementById('studentCsvText').value);
+    rows.forEach((row) => { if (row.name || row.studentId) state.students.unshift({ id: uid('student'), name: row.name || '', studentId: row.studentId || '', email: row.email || '', course: row.course || '', active: true, createdAt: new Date().toISOString() }); });
     rows.forEach((row) => {
       const roll = row.roll_number || row.roll || row.studentid || row.studentId || '';
       if (!(row.student_name || row.name || roll)) return;
@@ -1983,6 +2244,77 @@
     showToast('Students imported from CSV.');
   }
 
+  function renderStudents() {
+    const target = document.getElementById('studentList');
+    if (!target) return;
+    if (!state.students.length) return target.innerHTML = emptyState('No students added yet.');
+    target.innerHTML = state.students.map((student) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(student.name)}</h4><p>${escapeHtml(student.studentId)} · ${escapeHtml(student.email)} · ${escapeHtml(student.course || 'No course')}</p></div><span class="status-pill ${student.active ? 'is-live' : ''}">${student.active ? 'Active' : 'Inactive'}</span></div><div class="entity-actions"><button class="toolbar-button" data-toggle-student="${student.id}">${student.active ? 'Deactivate' : 'Activate'}</button><button class="toolbar-button toolbar-button--danger" data-delete-student="${student.id}">Delete</button></div></article>`).join('');
+    target.querySelectorAll('[data-toggle-student]').forEach((button) => button.addEventListener('click', () => { const student = state.students.find((item) => item.id === button.dataset.toggleStudent); student.active = !student.active; saveState(); renderStudents(); }));
+    target.querySelectorAll('[data-delete-student]').forEach((button) => button.addEventListener('click', () => { state.students = state.students.filter((item) => item.id !== button.dataset.deleteStudent); saveState(); renderStudents(); }));
+    populateSolutionSheetSelectors();
+  }
+
+  function bindSolutionSheetForm() {
+    const form = document.getElementById('solutionSheetForm');
+    if (!form) return;
+    populateSolutionSheetSelectors();
+    form.addEventListener('submit', handleSolutionSheetGenerate);
+    document.getElementById('solutionExam')?.addEventListener('change', populateSolutionSetFilter);
+  }
+
+  function populateSolutionSheetSelectors() {
+    const exam = document.getElementById('solutionExam');
+    const student = document.getElementById('solutionStudent');
+    if (!exam || !student) return;
+    exam.innerHTML = state.exams.length ? state.exams.map((item) => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join('') : '<option value="">No exams</option>';
+    student.innerHTML = state.students.length ? state.students.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('') : '<option value="">No students</option>';
+    populateSolutionSetFilter();
+  }
+
+  function populateSolutionSetFilter() {
+    const examId = document.getElementById('solutionExam')?.value;
+    const setFilter = document.getElementById('solutionSetFilter');
+    if (!setFilter) return;
+    setFilter.innerHTML = '<option value="">Auto Detect from OMR Answers</option>';
+    if (!examId) return;
+    const sets = state.generatedSets?.[examId] || getOrCreateExamSets(examId, false);
+    setFilter.innerHTML += sets.map((setItem, index) => `<option value="${index}">${escapeHtml(setItem.label)}</option>`).join('');
+  }
+
+  function handleSolutionSheetGenerate(event) {
+    event.preventDefault();
+    const examId = document.getElementById('solutionExam')?.value;
+    const answers = parseCommaList(document.getElementById('solutionMarkedAnswers')?.value || '').map((item) => item.toUpperCase());
+    const setValue = document.getElementById('solutionSetFilter')?.value;
+    const result = document.getElementById('solutionSheetResult');
+    if (!examId || !answers.length || !result) return;
+    const sets = state.generatedSets?.[examId] || getOrCreateExamSets(examId, false);
+    if (!sets.length) {
+      result.innerHTML = '<p>No generated sets found for this exam. Generate/preview sets from Handle Exams first.</p>';
+      return;
+    }
+    const selectedSet = setValue !== '' ? sets[Number(setValue)] : detectBestSet(sets, answers);
+    if (!selectedSet) return;
+    const rows = (selectedSet.answerKey || []).map((correct, index) => {
+      const marked = answers[index] || '-';
+      const status = marked === correct ? '✅' : '❌';
+      return `<tr><td>${index + 1}</td><td>${escapeHtml(marked)}</td><td>${escapeHtml(correct)}</td><td>${status}</td></tr>`;
+    }).join('');
+    const score = (selectedSet.answerKey || []).reduce((sum, correct, index) => sum + (answers[index] === correct ? 1 : 0), 0);
+    result.innerHTML = `<div class="preview-block"><h4>Solution Sheet · ${escapeHtml(selectedSet.label || 'Detected Set')}</h4><p>Detected by OMR compare. Score: ${score}/${selectedSet.answerKey.length}</p><table style="width:100%;border-collapse:collapse"><thead><tr><th style="border:1px solid #ddd;padding:6px">Q</th><th style="border:1px solid #ddd;padding:6px">Marked</th><th style="border:1px solid #ddd;padding:6px">Correct</th><th style="border:1px solid #ddd;padding:6px">Result</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function detectBestSet(sets, answers) {
+    let best = null;
+    let bestScore = -1;
+    sets.forEach((setItem) => {
+      const score = (setItem.answerKey || []).reduce((sum, correct, index) => sum + (answers[index] === correct ? 1 : 0), 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = setItem;
+      }
+    });
+    return best;
   async function importStudentsFromXlsx() {
     const file = document.getElementById('studentXlsxFile')?.files?.[0];
     if (!file) return showToast('Upload an XLSX file first.', 'error');

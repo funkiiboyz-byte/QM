@@ -1,11 +1,28 @@
--- Run in Supabase SQL Editor
+-- Fresh reset + setup script for MegaPrep Supabase backend.
+-- WARNING: This script drops existing public app tables and recreates them.
+
+begin;
+
 create extension if not exists "pgcrypto";
 
-create table if not exists public.profiles (
+-- Drop tables (dependent order)
+drop table if exists public.attempts cascade;
+drop table if exists public.exams cascade;
+drop table if exists public.questions cascade;
+drop table if exists public.students cascade;
+drop table if exists public.devices cascade;
+drop table if exists public.app_settings cascade;
+drop table if exists public.profiles cascade;
+
+drop function if exists public.is_admin() cascade;
+
+-- Profiles for auth -> role mapping
+create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
-  role text not null default 'admin' check (role in ('admin','student')),
+  role text not null default 'admin' check (role in ('admin', 'student')),
   full_name text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create or replace function public.is_admin()
@@ -20,26 +37,8 @@ as $$
   );
 $$;
 
-alter table public.profiles enable row level security;
-
-drop policy if exists "admin all profiles" on public.profiles;
-create policy "admin all profiles" on public.profiles
-for all using (public.is_admin()) with check (public.is_admin());
-
-drop policy if exists "self read profile" on public.profiles;
-create policy "self read profile" on public.profiles
-for select using (id = auth.uid());
-
-drop policy if exists "self upsert profile" on public.profiles;
-create policy "self upsert profile" on public.profiles
-for insert with check (id = auth.uid());
-
-drop policy if exists "self update profile" on public.profiles;
-create policy "self update profile" on public.profiles
-for update using (id = auth.uid()) with check (id = auth.uid());
-
--- Core tables
-create table if not exists public.exams (
+-- Core app tables
+create table public.exams (
   id text primary key,
   level text,
   "group" text,
@@ -63,9 +62,9 @@ create table if not exists public.exams (
   created_at timestamptz default now()
 );
 
-create table if not exists public.questions (
+create table public.questions (
   id text primary key,
-  type text not null check (type in ('mcq','cq')),
+  type text not null check (type in ('mcq', 'cq')),
   level text,
   "group" text,
   subject text,
@@ -81,7 +80,7 @@ create table if not exists public.questions (
   created_at timestamptz default now()
 );
 
-create table if not exists public.students (
+create table public.students (
   id text primary key,
   name text not null,
   roll_number text,
@@ -92,7 +91,7 @@ create table if not exists public.students (
   created_at timestamptz default now()
 );
 
-create table if not exists public.attempts (
+create table public.attempts (
   id text primary key,
   exam_id text references public.exams(id) on delete cascade,
   student_id text references public.students(id) on delete cascade,
@@ -107,7 +106,7 @@ create table if not exists public.attempts (
   created_at timestamptz default now()
 );
 
-create table if not exists public.devices (
+create table public.devices (
   id text primary key,
   label text,
   browser text,
@@ -115,22 +114,22 @@ create table if not exists public.devices (
   last_active timestamptz default now()
 );
 
-create table if not exists public.app_settings (
-  id int primary key default 1,
+-- Singleton workspace document used by app.js cloud sync
+create table public.app_settings (
+  id integer primary key,
   dark_mode boolean default false,
-  workspace_data jsonb default '{}'::jsonb,
-  print_config jsonb default '{}'::jsonb,
-  credentials jsonb default '{}'::jsonb,
+  workspace_data jsonb not null default '{}'::jsonb,
+  print_config jsonb not null default '{}'::jsonb,
+  credentials jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references public.profiles(id) on delete set null,
   constraint app_settings_singleton check (id = 1)
 );
 
-insert into public.app_settings(id) values (1)
-on conflict (id) do nothing;
+insert into public.app_settings (id) values (1);
 
-alter table public.app_settings
-add column if not exists workspace_data jsonb default '{}'::jsonb;
-
--- Admin-only policies for app tables
+-- Row level security
+alter table public.profiles enable row level security;
 alter table public.exams enable row level security;
 alter table public.questions enable row level security;
 alter table public.students enable row level security;
@@ -138,20 +137,64 @@ alter table public.attempts enable row level security;
 alter table public.devices enable row level security;
 alter table public.app_settings enable row level security;
 
-drop policy if exists "admin all exams" on public.exams;
-create policy "admin all exams" on public.exams for all using (public.is_admin()) with check (public.is_admin());
+-- Profiles policies
+create policy "profiles_self_read" on public.profiles
+for select using (id = auth.uid());
 
-drop policy if exists "admin all questions" on public.questions;
-create policy "admin all questions" on public.questions for all using (public.is_admin()) with check (public.is_admin());
+create policy "profiles_self_insert" on public.profiles
+for insert with check (id = auth.uid());
 
-drop policy if exists "admin all students" on public.students;
-create policy "admin all students" on public.students for all using (public.is_admin()) with check (public.is_admin());
+create policy "profiles_self_update" on public.profiles
+for update using (id = auth.uid()) with check (id = auth.uid());
 
-drop policy if exists "admin all attempts" on public.attempts;
-create policy "admin all attempts" on public.attempts for all using (public.is_admin()) with check (public.is_admin());
+create policy "profiles_admin_all" on public.profiles
+for all using (public.is_admin()) with check (public.is_admin());
 
-drop policy if exists "admin all devices" on public.devices;
-create policy "admin all devices" on public.devices for all using (public.is_admin()) with check (public.is_admin());
+-- Admin only policies for all data tables
+create policy "admin_all_exams" on public.exams
+for all using (public.is_admin()) with check (public.is_admin());
 
-drop policy if exists "admin all app_settings" on public.app_settings;
-create policy "admin all app_settings" on public.app_settings for all using (public.is_admin()) with check (public.is_admin());
+create policy "admin_all_questions" on public.questions
+for all using (public.is_admin()) with check (public.is_admin());
+
+create policy "admin_all_students" on public.students
+for all using (public.is_admin()) with check (public.is_admin());
+
+create policy "admin_all_attempts" on public.attempts
+for all using (public.is_admin()) with check (public.is_admin());
+
+create policy "admin_all_devices" on public.devices
+for all using (public.is_admin()) with check (public.is_admin());
+
+create policy "admin_all_app_settings" on public.app_settings
+for all using (public.is_admin()) with check (public.is_admin());
+
+-- Optional open access: allow app usage without login page
+create policy "anon_all_app_settings" on public.app_settings
+for all to anon using (true) with check (true);
+
+create policy "authenticated_all_app_settings" on public.app_settings
+for all to authenticated using (true) with check (true);
+
+-- Auto-promote your known admin email (if auth user already exists)
+do $$
+declare
+  v_admin_id uuid;
+begin
+  select id into v_admin_id
+  from auth.users
+  where email = 'shahreyar202020@gmail.com'
+  limit 1;
+
+  if v_admin_id is not null then
+    insert into public.profiles (id, role, full_name)
+    values (v_admin_id, 'admin', 'shahreyar202020')
+    on conflict (id) do update
+      set role = 'admin',
+          full_name = excluded.full_name,
+          updated_at = now();
+  end if;
+end
+$$;
+
+commit;
