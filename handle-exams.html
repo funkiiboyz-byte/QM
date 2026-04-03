@@ -89,6 +89,14 @@
 </label>
 </div>
 <div class="field-row">
+<label>Header Theme<select id="printHeaderTheme">
+<option value="classic">Classic</option>
+<option value="modern">Modern</option>
+<option value="minimal">Minimal</option>
+</select>
+</label>
+</div>
+<div class="field-row">
 <label>Question Number Prefix<input id="printNumberPrefix" type="text" placeholder="(optional)" />
 </label>
 <label>Columns<select id="printColumns">
@@ -149,6 +157,16 @@
 <p>Drag questions/options to change position. Answer key updates automatically.</p>
 </div>
 <div id="dragQuestionList" class="entity-list">
+<label class="checkbox-row checkbox-card">
+<input id="printCompactMode" type="checkbox" />
+<span>Compact print mode (fit more MCQ per page)</span>
+</label>
+</form>
+<div id="printPreviewMeta" class="preview-surface preview-surface--small">
+</div>
+<div id="printFormatActions" class="entity-actions exam-actions-row">
+</div>
+<div id="resultAnalyzerPanel" class="preview-surface preview-surface--small" hidden>
 </div>
 </div>
 </div>
@@ -159,6 +177,7 @@
 </div>
 <script src="curriculum.js">
 </script>
+<script src="firebase-config.js"></script>
 <script src="app.js">
 </script>
 </body>
