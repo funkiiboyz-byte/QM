@@ -73,6 +73,32 @@
 </div>
 <div id="studentList" class="entity-list">
 </div>
+<div class="divider">
+</div>
+<div class="panel-card__header panel-card__header--sub">
+<h3>Marksheet Details + Solution Sheet</h3>
+<p>OMR scan/answers paste kore set detect kore correct solution compare korun.</p>
+</div>
+<form id="solutionSheetForm" class="app-form app-form--two-col">
+<label>Exam<select id="solutionExam">
+</select>
+</label>
+<label>Student<select id="solutionStudent">
+</select>
+</label>
+<label>Set (Optional)<select id="solutionSetFilter">
+<option value="">Auto Detect from OMR Answers</option>
+</select>
+</label>
+<label>OMR / Marked Answers<textarea id="solutionMarkedAnswers" rows="3" placeholder="A,B,C,D,...">
+</textarea>
+</label>
+<div class="full-span app-form__actions">
+<button class="submit-button" type="submit">Generate Solution Sheet</button>
+</div>
+</form>
+<div id="solutionSheetResult" class="preview-surface">
+</div>
 </div>
 </div>
 </section>

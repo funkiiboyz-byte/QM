@@ -7,6 +7,7 @@
     questions: [],
     students: [],
     attempts: [],
+    generatedSets: {},
     devices: [],
     credentials: { adminPassword: 'admin1234', admins: [], students: [] },
     settings: {
@@ -630,7 +631,9 @@
     bindCurriculumFilterSelectors({ level: 'examFilterLevel', group: 'examFilterGroup', subject: 'examFilterSubject', topic: 'examFilterTopic' });
     bindExamFilters();
     bindPrintConfig();
+    bindLivePreviewControls();
     renderExamManager();
+    refreshLivePreview();
   }
 
   function bindCurriculumFilterSelectors(ids) {
@@ -703,6 +706,7 @@
         config[map[key]] = map[key] === 'setCount' ? Number(el.value || 1) : el.value;
         saveState();
         renderPrintPreviewMeta();
+        refreshLivePreview(true);
       });
     });
     ['printShowAnswers', 'printShowExplanation', 'printShuffleQuestions', 'printShuffleOptions', 'printAnswerSheet'].forEach((id) => {
@@ -717,7 +721,7 @@
       };
       const key = keyMap[id];
       el.checked = !!config[key];
-      el.addEventListener('change', () => { config[key] = el.checked; saveState(); renderPrintPreviewMeta(); });
+      el.addEventListener('change', () => { config[key] = el.checked; saveState(); renderPrintPreviewMeta(); refreshLivePreview(true); });
     });
     renderPrintPreviewMeta();
   }
@@ -727,6 +731,89 @@
     if (!preview) return;
     const config = state.settings.printConfig;
     preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)}</p></div>`;
+  }
+
+  function bindLivePreviewControls() {
+    const exam = document.getElementById('livePreviewExam');
+    const set = document.getElementById('livePreviewSet');
+    const refresh = document.getElementById('refreshLivePreviewBtn');
+    if (!exam || !set || !refresh) return;
+    refresh.addEventListener('click', refreshLivePreview);
+    exam.addEventListener('change', () => refreshLivePreview(true));
+    set.addEventListener('change', () => refreshLivePreview(false));
+  }
+
+  function refreshLivePreview(regenerate = false) {
+    const examSelect = document.getElementById('livePreviewExam');
+    const setSelect = document.getElementById('livePreviewSet');
+    const preview = document.getElementById('livePaperPreview');
+    if (!examSelect || !setSelect || !preview) return;
+    examSelect.innerHTML = state.exams.length ? state.exams.map((item) => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join('') : '<option value="">No exams</option>';
+    if (!examSelect.value && state.exams[0]) examSelect.value = state.exams[0].id;
+    if (!examSelect.value) {
+      preview.innerHTML = emptyState('No exams available for live preview.');
+      return;
+    }
+    const sets = getOrCreateExamSets(examSelect.value, regenerate);
+    setSelect.innerHTML = sets.map((item, index) => `<option value="${index}">${escapeHtml(item.label)}</option>`).join('');
+    if (!setSelect.value) setSelect.value = '0';
+    const activeSet = sets[Number(setSelect.value || 0)] || sets[0];
+    if (!activeSet) {
+      preview.innerHTML = emptyState('No generated set found.');
+      return;
+    }
+    preview.innerHTML = renderLiveSetPreview(activeSet);
+    renderDragQuestionEditor(examSelect.value, Number(setSelect.value || 0));
+  }
+
+  function renderLiveSetPreview(setData) {
+    const questions = (setData.questions || []).map((question, index) => {
+      const optionHtml = question.type === 'mcq' ? `<ul class="option-list">${(question.options || []).map((option, i) => `<li>${String.fromCharCode(65 + i)}. ${escapeHtml(latexToPlainText(option))}</li>`).join('')}</ul>` : '';
+      return `<article class="print-question"><h3 class="${question.type === 'mcq' ? 'mcq-title' : 'cq-title'}">${index + 1}. ${escapeHtml(latexToPlainText(question.question || question.stimulus || ''))}</h3>${optionHtml}</article>`;
+    }).join('');
+    return `<div class="preview-block"><h4>${escapeHtml(setData.label)} · Live Question Paper</h4>${questions || '<p>No questions.</p>'}</div>`;
+  }
+
+  function renderDragQuestionEditor(examId, setIndex) {
+    const target = document.getElementById('dragQuestionList');
+    const sets = state.generatedSets?.[examId] || [];
+    const activeSet = sets[setIndex];
+    if (!target || !activeSet) return;
+    target.innerHTML = (activeSet.questions || []).map((question, qIndex) => `<article class="entity-card entity-card--stacked draggable-question" draggable="true" data-q-index="${qIndex}"><div class="entity-card__head"><h4>${qIndex + 1}. ${escapeHtml(latexToPlainText(question.question || question.stimulus || 'Question'))}</h4><span class="status-pill">${escapeHtml((question.type || 'mcq').toUpperCase())}</span></div>${question.type === 'mcq' ? `<div class="assignment-list">${(question.options || []).map((option, oIndex) => `<label class="assignment-item draggable-option" draggable="true" data-q-index="${qIndex}" data-o-index="${oIndex}"><span>${String.fromCharCode(65 + oIndex)}. ${escapeHtml(latexToPlainText(option))}</span></label>`).join('')}</div>` : ''}</article>`).join('');
+    bindDragEvents(examId, setIndex);
+  }
+
+  function bindDragEvents(examId, setIndex) {
+    const container = document.getElementById('dragQuestionList');
+    if (!container) return;
+    let draggingQuestion = null;
+    let draggingOption = null;
+    container.querySelectorAll('.draggable-question').forEach((item) => {
+      item.addEventListener('dragstart', () => { draggingQuestion = Number(item.dataset.qIndex); });
+      item.addEventListener('dragover', (event) => event.preventDefault());
+      item.addEventListener('drop', () => {
+        const targetIndex = Number(item.dataset.qIndex);
+        if (draggingQuestion === null || draggingQuestion === targetIndex) return;
+        moveArrayItem(state.generatedSets[examId][setIndex].questions, draggingQuestion, targetIndex);
+        recalcAnswerKey(state.generatedSets[examId][setIndex]);
+        saveState();
+        refreshLivePreview(false);
+      });
+    });
+    container.querySelectorAll('.draggable-option').forEach((item) => {
+      item.addEventListener('dragstart', () => { draggingOption = { q: Number(item.dataset.qIndex), o: Number(item.dataset.oIndex) }; });
+      item.addEventListener('dragover', (event) => event.preventDefault());
+      item.addEventListener('drop', () => {
+        if (!draggingOption) return;
+        const qIndex = Number(item.dataset.qIndex);
+        const targetOption = Number(item.dataset.oIndex);
+        if (draggingOption.q !== qIndex || draggingOption.o === targetOption) return;
+        moveMcqOption(state.generatedSets[examId][setIndex].questions[qIndex], draggingOption.o, targetOption);
+        recalcAnswerKey(state.generatedSets[examId][setIndex]);
+        saveState();
+        refreshLivePreview(false);
+      });
+    });
   }
 
   function renderExamManager() {
@@ -752,8 +839,10 @@
     target.querySelectorAll('input[data-exam-id]').forEach((checkbox) => checkbox.addEventListener('change', () => {
       const exam = findExam(checkbox.dataset.examId);
       exam.questionIds = checkbox.checked ? [...new Set([...exam.questionIds, checkbox.dataset.questionId])] : exam.questionIds.filter((id) => id !== checkbox.dataset.questionId);
+      if (state.generatedSets?.[exam.id]) delete state.generatedSets[exam.id];
       saveState();
       renderExamManager();
+      refreshLivePreview(true);
       showToast('Exam question mapping updated.');
     }));
   }
@@ -771,14 +860,15 @@
   function buildExamPaperHtml(examId) {
     const exam = findExam(examId);
     const config = state.settings.printConfig;
-    const questions = exam.questionIds.map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
-    const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
+    const safeSets = getOrCreateExamSets(examId, false);
     const setMarkup = [];
     const answerSheets = [];
 
-    for (let setIndex = 0; setIndex < safeSetCount; setIndex += 1) {
-      const { setQuestions, answerKey } = buildQuestionSet(questions, config);
-      const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${String.fromCharCode(65 + setIndex)}`;
+    for (let setIndex = 0; setIndex < safeSets.length; setIndex += 1) {
+      const currentSet = safeSets[setIndex];
+      const setQuestions = currentSet.questions || [];
+      const answerKey = currentSet.answerKey || [];
+      const setLabel = currentSet.label || (config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${String.fromCharCode(65 + setIndex)}`);
       const list = setQuestions.map((question, index) => {
         const number = `${index + 1}`;
         const title = latexToPlainText(question.question || question.stimulus || '');
@@ -820,6 +910,49 @@
       return question;
     });
     return { setQuestions, answerKey };
+  }
+
+  function getOrCreateExamSets(examId, regenerate = false) {
+    const exam = findExam(examId);
+    if (!exam) return [];
+    const config = state.settings.printConfig;
+    const questions = exam.questionIds.map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
+    const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
+    const hasExisting = Array.isArray(state.generatedSets?.[examId]) && state.generatedSets[examId].length;
+    if (!regenerate && hasExisting && state.generatedSets[examId].length === safeSetCount) return state.generatedSets[examId];
+    const sets = [];
+    for (let setIndex = 0; setIndex < safeSetCount; setIndex += 1) {
+      const built = buildQuestionSet(questions, config);
+      sets.push({
+        label: config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${String.fromCharCode(65 + setIndex)}`,
+        questions: built.setQuestions,
+        answerKey: built.answerKey,
+      });
+    }
+    state.generatedSets = state.generatedSets || {};
+    state.generatedSets[examId] = sets;
+    saveState();
+    return sets;
+  }
+
+  function recalcAnswerKey(setData) {
+    setData.answerKey = (setData.questions || []).map((question) => {
+      if (question.type !== 'mcq') return 'CQ';
+      return String.fromCharCode(65 + (question.correct || 0));
+    });
+  }
+
+  function moveArrayItem(arr, from, to) {
+    const [item] = arr.splice(from, 1);
+    arr.splice(to, 0, item);
+  }
+
+  function moveMcqOption(question, from, to) {
+    if (!question?.options?.length) return;
+    moveArrayItem(question.options, from, to);
+    if (question.correct === from) question.correct = to;
+    else if (question.correct > from && question.correct <= to) question.correct -= 1;
+    else if (question.correct < from && question.correct >= to) question.correct += 1;
   }
 
   function shuffleArray(items) {
@@ -877,6 +1010,7 @@
     document.getElementById('studentForm').addEventListener('submit', saveStudent);
     document.getElementById('studentCsvFile').addEventListener('change', async (e) => { const file = e.target.files?.[0]; if (file) document.getElementById('studentCsvText').value = await file.text(); });
     document.getElementById('importStudentsBtn').addEventListener('click', importStudents);
+    bindSolutionSheetForm();
     renderStudents();
   }
 
@@ -904,6 +1038,70 @@
     target.innerHTML = state.students.map((student) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(student.name)}</h4><p>${escapeHtml(student.studentId)} · ${escapeHtml(student.email)} · ${escapeHtml(student.course || 'No course')}</p></div><span class="status-pill ${student.active ? 'is-live' : ''}">${student.active ? 'Active' : 'Inactive'}</span></div><div class="entity-actions"><button class="toolbar-button" data-toggle-student="${student.id}">${student.active ? 'Deactivate' : 'Activate'}</button><button class="toolbar-button toolbar-button--danger" data-delete-student="${student.id}">Delete</button></div></article>`).join('');
     target.querySelectorAll('[data-toggle-student]').forEach((button) => button.addEventListener('click', () => { const student = state.students.find((item) => item.id === button.dataset.toggleStudent); student.active = !student.active; saveState(); renderStudents(); }));
     target.querySelectorAll('[data-delete-student]').forEach((button) => button.addEventListener('click', () => { state.students = state.students.filter((item) => item.id !== button.dataset.deleteStudent); saveState(); renderStudents(); }));
+    populateSolutionSheetSelectors();
+  }
+
+  function bindSolutionSheetForm() {
+    const form = document.getElementById('solutionSheetForm');
+    if (!form) return;
+    populateSolutionSheetSelectors();
+    form.addEventListener('submit', handleSolutionSheetGenerate);
+    document.getElementById('solutionExam')?.addEventListener('change', populateSolutionSetFilter);
+  }
+
+  function populateSolutionSheetSelectors() {
+    const exam = document.getElementById('solutionExam');
+    const student = document.getElementById('solutionStudent');
+    if (!exam || !student) return;
+    exam.innerHTML = state.exams.length ? state.exams.map((item) => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join('') : '<option value="">No exams</option>';
+    student.innerHTML = state.students.length ? state.students.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('') : '<option value="">No students</option>';
+    populateSolutionSetFilter();
+  }
+
+  function populateSolutionSetFilter() {
+    const examId = document.getElementById('solutionExam')?.value;
+    const setFilter = document.getElementById('solutionSetFilter');
+    if (!setFilter) return;
+    setFilter.innerHTML = '<option value="">Auto Detect from OMR Answers</option>';
+    if (!examId) return;
+    const sets = state.generatedSets?.[examId] || getOrCreateExamSets(examId, false);
+    setFilter.innerHTML += sets.map((setItem, index) => `<option value="${index}">${escapeHtml(setItem.label)}</option>`).join('');
+  }
+
+  function handleSolutionSheetGenerate(event) {
+    event.preventDefault();
+    const examId = document.getElementById('solutionExam')?.value;
+    const answers = parseCommaList(document.getElementById('solutionMarkedAnswers')?.value || '').map((item) => item.toUpperCase());
+    const setValue = document.getElementById('solutionSetFilter')?.value;
+    const result = document.getElementById('solutionSheetResult');
+    if (!examId || !answers.length || !result) return;
+    const sets = state.generatedSets?.[examId] || getOrCreateExamSets(examId, false);
+    if (!sets.length) {
+      result.innerHTML = '<p>No generated sets found for this exam. Generate/preview sets from Handle Exams first.</p>';
+      return;
+    }
+    const selectedSet = setValue !== '' ? sets[Number(setValue)] : detectBestSet(sets, answers);
+    if (!selectedSet) return;
+    const rows = (selectedSet.answerKey || []).map((correct, index) => {
+      const marked = answers[index] || '-';
+      const status = marked === correct ? '✅' : '❌';
+      return `<tr><td>${index + 1}</td><td>${escapeHtml(marked)}</td><td>${escapeHtml(correct)}</td><td>${status}</td></tr>`;
+    }).join('');
+    const score = (selectedSet.answerKey || []).reduce((sum, correct, index) => sum + (answers[index] === correct ? 1 : 0), 0);
+    result.innerHTML = `<div class="preview-block"><h4>Solution Sheet · ${escapeHtml(selectedSet.label || 'Detected Set')}</h4><p>Detected by OMR compare. Score: ${score}/${selectedSet.answerKey.length}</p><table style="width:100%;border-collapse:collapse"><thead><tr><th style="border:1px solid #ddd;padding:6px">Q</th><th style="border:1px solid #ddd;padding:6px">Marked</th><th style="border:1px solid #ddd;padding:6px">Correct</th><th style="border:1px solid #ddd;padding:6px">Result</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function detectBestSet(sets, answers) {
+    let best = null;
+    let bestScore = -1;
+    sets.forEach((setItem) => {
+      const score = (setItem.answerKey || []).reduce((sum, correct, index) => sum + (answers[index] === correct ? 1 : 0), 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = setItem;
+      }
+    });
+    return best;
   }
 
   function initAnalyticsPage() {
