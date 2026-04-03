@@ -1888,3 +1888,30 @@ canvas {
 .preview-surface--small {
   min-height: 180px;
 }
+
+.live-preview-grid {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.live-preview-card {
+  cursor: move;
+}
+
+.live-preview-options li {
+  cursor: move;
+}
+
+.student-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.solution-sheet-box {
+  border: 1px solid #d8dee9;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fff;
+}
