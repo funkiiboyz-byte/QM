@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Students | MegaPrep CMS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body data-page="students">
+<div class="page-shell">
+<header class="topbar topbar--dashboard">
+<div class="topbar-glow" aria-hidden="true">
+</div>
+<div class="brand brand--dashboard">
+<div class="logo-mark logo-mark--3d" aria-hidden="true">
+<span>M</span>
+</div>
+<div class="brand-copy brand-copy--stacked">
+<span class="brand-name">MegaPrep</span>
+<span class="brand-tag">Students</span>
+</div>
+</div>
+<div class="topbar-actions topbar-actions--dashboard">
+<button class="topbar-button topbar-button--ghost" id="themeToggle" type="button">Toggle Theme</button>
+<a class="topbar-button topbar-button--ghost" href="index.html">Dashboard</a>
+<a class="topbar-button topbar-button--solid" href="analytics.html">Analytics</a>
+</div>
+</header>
+<main class="content-area app-layout">
+<section class="workspace-shell">
+<div class="workspace-toolbar">
+<div>
+<p class="section-heading__eyebrow">Students</p>
+<h2>Student Manager</h2>
+</div>
+</div>
+<div class="panel-grid panel-grid--form">
+<div class="panel-card">
+<div class="panel-card__header">
+<h3>Create Student</h3>
+<p>Create student profiles or upload CSV.</p>
+</div>
+<form id="studentForm" class="app-form app-form--two-col">
+<label>Full name<input id="studentName" required type="text" placeholder="Student name" />
+</label>
+<label>Student ID<input id="studentStudentId" required type="text" placeholder="Student ID" />
+</label>
+<label>Email<input id="studentEmail" required type="email" placeholder="Email address" />
+</label>
+<label>Course<input id="studentCourse" type="text" placeholder="Assigned course" />
+</label>
+<div class="full-span app-form__actions">
+<button class="submit-button" type="submit">Create Student</button>
+</div>
+</form>
+<div class="divider">
+</div>
+<div class="app-form app-form--single">
+<label>Bulk Upload CSV<textarea id="studentCsvText" rows="6" placeholder="name,studentId,email,course">
+</textarea>
+</label>
+<label class="toolbar-button toolbar-button--file">Upload CSV<input id="studentCsvFile" type="file" accept=".csv,text/csv" hidden />
+</label>
+<button id="importStudentsBtn" class="submit-button" type="button">Import Students</button>
+</div>
+</div>
+<div class="panel-card">
+<div class="panel-card__header">
+<h3>Student Directory</h3>
+</div>
+<div id="studentList" class="entity-list">
+</div>
+<div class="divider">
+</div>
+<div class="panel-card__header panel-card__header--sub">
+<h3>Marksheet Details + Solution Sheet</h3>
+<p>OMR scan/answers paste kore set detect kore correct solution compare korun.</p>
+</div>
+<form id="solutionSheetForm" class="app-form app-form--two-col">
+<label>Exam<select id="solutionExam">
+</select>
+</label>
+<label>Student<select id="solutionStudent">
+</select>
+</label>
+<label>Set (Optional)<select id="solutionSetFilter">
+<option value="">Auto Detect from OMR Answers</option>
+</select>
+</label>
+<label>OMR / Marked Answers<textarea id="solutionMarkedAnswers" rows="3" placeholder="A,B,C,D,...">
+</textarea>
+</label>
+<div class="full-span app-form__actions">
+<button class="submit-button" type="submit">Generate Solution Sheet</button>
+</div>
+</form>
+<div id="solutionSheetResult" class="preview-surface">
+</div>
+</div>
+</div>
+</section>
+</main>
+</div>
+<div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true">
+</div>
+<script src="curriculum.js">
+</script>
+<script src="app.js">
+</script>
+</body>
+</html>
