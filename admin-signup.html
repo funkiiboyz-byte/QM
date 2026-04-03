@@ -23,58 +23,65 @@
             <span class="brand-tag brand-tag--light">CMS Admin</span>
           </div>
         </div>
-        <p class="eyebrow eyebrow--light">Team onboarding</p>
-        <h1>Create a professional admin workspace.</h1>
-        <p class="auth-intro-copy">
-          Set up a new administrator account for exam management, reporting, and operational
-          oversight.
-        </p>
+
+        <div class="auth-hero-copy">
+          <p class="eyebrow eyebrow--light">Admin setup</p>
+          <h1>Create a new admin account.</h1>
+          <p class="auth-intro-copy auth-intro-copy--light">
+            Register a workspace profile for platform management.
+          </p>
+        </div>
       </section>
 
       <section class="auth-panel auth-panel--form">
         <div class="auth-card">
-          <p class="form-kicker">Admin sign up</p>
-          <h2>Create admin account</h2>
-          <p class="form-copy">Register a team admin profile to start managing MegaPrep CMS.</p>
+          <div class="auth-card-top auth-card-top--compact">
+            <div>
+              <p class="form-kicker">Admin sign up</p>
+              <h2>Create admin account</h2>
+            </div>
+          </div>
 
-          <form class="auth-form auth-form--two-col">
+          <form id="adminSignupForm" class="auth-form auth-form--two-col">
             <label>
               Full name
-              <input type="text" placeholder="Ayesha Rahman" />
+              <input type="text" placeholder="Enter full name" />
             </label>
             <label>
               Department
-              <input type="text" placeholder="Exam Operations" />
+              <input type="text" placeholder="Enter department" />
             </label>
             <label>
               Work email
-              <input type="email" placeholder="admin@megaprep.com" />
+              <input type="email" placeholder="Enter work email" />
             </label>
             <label>
               Phone number
-              <input type="tel" placeholder="+880 1XXX-XXXXXX" />
+              <input type="tel" placeholder="Enter phone number" />
             </label>
             <label>
               Password
-              <input type="password" placeholder="Create a secure password" />
+              <input type="password" placeholder="Create password" />
             </label>
             <label>
               Confirm password
-              <input type="password" placeholder="Repeat password" />
+              <input type="password" placeholder="Confirm password" />
             </label>
             <label class="full-span checkbox-row checkbox-card">
               <input type="checkbox" checked />
-              <span>I agree to the platform terms, privacy policy, and secure access guidelines.</span>
+              <span>I agree to the platform terms and privacy policy.</span>
             </label>
             <button type="submit" class="submit-button full-span">Create Admin Account</button>
           </form>
 
-          <p class="switch-copy">
+          <p class="switch-copy switch-copy--simple">
             Already have an admin account?
             <a href="admin-login.html">Login here</a>
           </p>
         </div>
       </section>
     </main>
+      <script src="firebase-config.js"></script>
+      <script src="auth.js"></script>
   </body>
 </html>

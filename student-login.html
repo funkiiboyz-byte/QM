@@ -23,37 +23,33 @@
             <span class="brand-tag brand-tag--light">Student Portal</span>
           </div>
         </div>
-        <p class="eyebrow eyebrow--light">Student access</p>
-        <h1>Login to continue your exam journey.</h1>
-        <p class="auth-intro-copy">
-          Review schedules, join live tests, and monitor performance from a calm, focused portal.
-        </p>
-        <div class="auth-stat-grid">
-          <div>
-            <strong>Live tests</strong>
-            <span>Instant access to assigned assessments.</span>
-          </div>
-          <div>
-            <strong>Progress</strong>
-            <span>Track scores and performance trends clearly.</span>
-          </div>
+
+        <div class="auth-hero-copy">
+          <p class="eyebrow eyebrow--light">Student access</p>
+          <h1>Sign in to your student portal.</h1>
+          <p class="auth-intro-copy auth-intro-copy--light">
+            Simple access for exams, schedules, and results.
+          </p>
         </div>
       </section>
 
       <section class="auth-panel auth-panel--form">
-        <div class="auth-card">
-          <p class="form-kicker">Student login</p>
-          <h2>Enter your portal</h2>
-          <p class="form-copy">Use your registered email or student ID to access your dashboard.</p>
+        <div class="auth-card auth-card--student">
+          <div class="auth-card-top auth-card-top--compact">
+            <div>
+              <p class="form-kicker form-kicker--student">Student login</p>
+              <h2>Sign in</h2>
+            </div>
+          </div>
 
-          <form class="auth-form">
+          <form id="studentLoginForm" class="auth-form">
             <label>
               Email or student ID
-              <input type="text" placeholder="student@megaprep.com" />
+              <input type="text" placeholder="Enter email or student ID" />
             </label>
             <label>
               Password
-              <input type="password" placeholder="Enter your password" />
+              <input type="password" placeholder="Enter password" />
             </label>
 
             <div class="form-row">
@@ -67,12 +63,14 @@
             <button type="submit" class="submit-button submit-button--student">Login Now</button>
           </form>
 
-          <p class="switch-copy">
+          <p class="switch-copy switch-copy--simple">
             New student here?
             <a href="student-signup.html">Create your account</a>
           </p>
         </div>
       </section>
     </main>
+      <script src="firebase-config.js"></script>
+      <script src="auth.js"></script>
   </body>
 </html>
