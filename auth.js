@@ -1,6 +1,10 @@
 (() => {
   const STORAGE_KEY = 'megaprep-cms-state-v2';
   const SESSION_KEY = 'megaprep-session-v1';
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  function init() {
   const DASHBOARD_URL = 'index.html';
   const CLOUDFLARE_API = (window.MPQM_CLOUDFLARE_API || '').replace(/\/+$/, '');
   const CLOUDFLARE_TOKEN = window.MPQM_CLOUDFLARE_TOKEN || '';
@@ -35,6 +39,22 @@
     bindStudentSignup();
   }
 
+  function bindAdminLogin() {
+    const form = document.getElementById('adminLoginForm');
+    if (!form) return;
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const state = getState();
+      const email = form.querySelector('input[type="email"]').value.trim();
+      const password = form.querySelector('input[type="password"]').value;
+      const validCustomAdmin = state.credentials.admins.find((admin) => admin.email === email && admin.password === password);
+      if (password !== state.credentials.adminPassword && !validCustomAdmin) {
+        return alert('Invalid admin credentials.');
+      }
+      const session = createSession('admin', email || 'admin');
+      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      saveDevice(state, session);
+      window.location.href = 'index.html';
   function bindSupabaseAuthRedirect() {
     // no-op for Cloudflare token based backend
   }
@@ -74,6 +94,9 @@
   function bindAdminSignup() {
     const form = document.getElementById('adminSignupForm');
     if (!form) return;
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const state = getState();
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const inputs = form.querySelectorAll('input');
@@ -85,6 +108,9 @@
         phone: inputs[3].value.trim(),
         password: inputs[4].value,
       };
+      state.credentials.admins.push(payload);
+      saveState(state);
+      alert('Admin account created. Please login.');
       const state = getState();
       state.credentials.admins.push(payload);
       saveState(state);
