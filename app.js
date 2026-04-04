@@ -73,6 +73,7 @@
       case 'solution-download': initSolutionDownloadPage(); break;
       case 'students': initStudentsPage(); break;
       case 'result-analyse': initResultAnalysePage(); break;
+      case 'scan-omr': initScanOmrPage(); break;
       case 'student-profile': initStudentProfilePage(); break;
       case 'analytics': initAnalyticsPage(); break;
       case 'devices': initDevicesPage(); break;
@@ -1765,6 +1766,41 @@
     fileInput.addEventListener('change', syncOmrDrafts);
   }
 
+  function initScanOmrPage() {
+    initResultAnalysePage();
+    const examSelect = document.getElementById('resultExamSelect');
+    const downloadBtn = document.getElementById('scanOmrDownloadBtn');
+    const printBtn = document.getElementById('scanOmrPrintBtn');
+    const questionPaperBtn = document.getElementById('scanOmrQuestionPaperBtn');
+    if (!examSelect || !downloadBtn || !printBtn || !questionPaperBtn) return;
+
+    const getExamId = () => examSelect.value || '';
+    downloadBtn.addEventListener('click', () => {
+      const examId = getExamId();
+      if (!examId) return showToast('Exam select করুন।', 'error');
+      const exam = findExam(examId);
+      if (!exam) return showToast('Exam not found.', 'error');
+      const blob = new Blob([buildOmrSheetHtml(examId)], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${(exam.title || 'exam').replace(/\s+/g, '-').toLowerCase()}-omr-sheet.html`;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast('OMR sheet downloaded.');
+    });
+    printBtn.addEventListener('click', () => {
+      const examId = getExamId();
+      if (!examId) return showToast('Exam select করুন।', 'error');
+      printOmrSheet(examId);
+    });
+    questionPaperBtn.addEventListener('click', () => {
+      const examId = getExamId();
+      if (!examId) return showToast('Exam select করুন।', 'error');
+      printExamPaper(examId);
+    });
+  }
+
   function renderOmrUploadPreview(files, target) {
     const list = [...(files || [])];
     if (!list.length) {
@@ -1785,7 +1821,7 @@
     const rows = [];
     const getFileKey = (file) => `${file.name}__${file.size}__${file.lastModified}`;
     for (const file of imageFiles) {
-      const detected = await detectOmrFromImage(file, answerKey.length);
+      const detected = await detectOmrFromImage(file, defaultKey.length);
       const override = rollOverrides.get(getFileKey(file));
       const finalRoll = typeof override === 'string' ? override : (override?.roll || detected.roll || '');
       const finalSet = typeof override === 'object' ? (override?.setCode || detected.setCode || '') : (detected.setCode || '');
