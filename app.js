@@ -2494,7 +2494,9 @@
     const questionsMarkup = targetSet.setQuestions.map((question, index) => {
       const displaySubject = question.subject || exam.subject || '';
       if (question.type !== 'mcq') {
-        return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><p class="muted-copy">CQ / written answer.</p></article>`;
+        const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${item.answer ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer, { subject: displaySubject })}</div>` : ''}</div>`).join('');
+        const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
+        return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${subs || '<p class="muted-copy">CQ / written answer.</p>'}${explanation}</article>`;
       }
       const correct = targetSet.answerKey[index] || '-';
       const marked = markedAnswers[index] || '-';
@@ -2504,7 +2506,8 @@
         const isCorrect = label === correct;
         return `<li class="${isMarked ? 'is-marked' : ''} ${isCorrect ? 'is-correct' : ''}"><span class="option-label">${label}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span></li>`;
       }).join('');
-      return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><ul class="option-list option-list--grid">${options}</ul><p class="solution-legend"><strong>Marked:</strong> ${escapeHtml(marked)} · <strong>Correct:</strong> ${escapeHtml(correct)}</p></article>`;
+      const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
+      return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><ul class="option-list option-list--grid">${options}</ul><p class="solution-legend"><strong>Marked:</strong> ${escapeHtml(marked)} · <strong>Correct:</strong> ${escapeHtml(correct)}</p>${explanation}</article>`;
     }).join('');
     return `<section class="paper live-preview-paper"><div class="board-head board-head--${escapeAttr(targetSet.config.headerTheme || 'classic')}"><h2>${formatMathForDisplay(exam.title)} · Solution Sheet</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(targetSet.setLabel)}</span><span><strong>Student Marked vs Correct</strong></span></div></div><div class="question-grid">${questionsMarkup || '<p>No question found.</p>'}</div></section>`;
   }
