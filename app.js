@@ -870,6 +870,7 @@
         })),
         image: question.image || '',
         createdAt: new Date().toISOString(),
+        importedAt: new Date().toISOString(),
       };
     }
 
@@ -896,6 +897,7 @@
       explanation: String(question.explanation || '').trim(),
       image: question.image || '',
       createdAt: new Date().toISOString(),
+      importedAt: new Date().toISOString(),
     };
   }
 
@@ -948,7 +950,12 @@
     const target = document.getElementById('questionList');
     if (!target) return;
     if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
-    target.innerHTML = state.questions.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${formatMathForDisplay(question.question || question.stimulus || 'Question')}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
+    const ordered = [...state.questions].sort((a, b) => {
+      const importedDiff = new Date(b.importedAt || 0).getTime() - new Date(a.importedAt || 0).getTime();
+      if (importedDiff !== 0) return importedDiff;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
+    target.innerHTML = ordered.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${formatMathForDisplay(question.question || question.stimulus || 'Question')}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
     target.querySelectorAll('[data-edit-question]').forEach((button) => button.addEventListener('click', () => startQuestionEdit(button.dataset.editQuestion)));
     target.querySelectorAll('[data-delete-question]').forEach((button) => button.addEventListener('click', () => {
       state.questions = state.questions.filter((item) => item.id !== button.dataset.deleteQuestion);
@@ -2054,8 +2061,15 @@
 
   function buildQuestionSet(sourceQuestions, config, options = {}) {
     const rng = createSeededRandom(options.seed || '');
-    let setQuestions = sourceQuestions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: question.subQuestions ? question.subQuestions.map((item) => ({ ...item })) : [] }));
-    if (config.shuffleQuestions) setQuestions = shuffleArray(setQuestions, rng);
+    const clonedQuestions = sourceQuestions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: question.subQuestions ? question.subQuestions.map((item) => ({ ...item })) : [] }));
+    const cqQuestions = clonedQuestions.filter((question) => question.type === 'cq');
+    const mcqQuestions = clonedQuestions.filter((question) => question.type !== 'cq');
+    let setQuestions = [];
+    if (config.shuffleQuestions) {
+      setQuestions = [...shuffleArray(cqQuestions, rng), ...shuffleArray(mcqQuestions, rng)];
+    } else {
+      setQuestions = [...cqQuestions, ...mcqQuestions];
+    }
     const answerKey = [];
     setQuestions = setQuestions.map((question) => {
       if (question.type !== 'mcq') {
