@@ -22,6 +22,10 @@
         instructions: 'Answer all questions carefully.',
         durationLabel: '3 Hours',
         marksLabel: '100',
+        paperTitle: '',
+        paperSubject: '',
+        paperDate: '',
+        paperType: '',
         headerTheme: 'classic',
         numberPrefix: '',
         columns: '1',
@@ -46,6 +50,8 @@
   let selectedQuestionExamId = '';
   let editingQuestionId = '';
   let selectedManageExamId = '';
+  let livePreviewSelectedSet = '';
+  const livePreviewLayouts = new Map();
   let cloudSaveTimer = null;
   let cloudLifecycleBound = false;
 
@@ -71,6 +77,7 @@
       case 'solution-download': initSolutionDownloadPage(); break;
       case 'students': initStudentsPage(); break;
       case 'result-analyse': initResultAnalysePage(); break;
+      case 'scan-omr': initScanOmrPage(); break;
       case 'student-profile': initStudentProfilePage(); break;
       case 'analytics': initAnalyticsPage(); break;
       case 'devices': initDevicesPage(); break;
@@ -726,6 +733,10 @@
         subject: document.getElementById('qbSubject').value,
         topic: document.getElementById('qbTopic').value,
       };
+      const importMeta = {
+        partWise: !!document.getElementById('jsonImportPartWise')?.checked,
+        defaultPart: String(document.getElementById('jsonImportDefaultPart')?.value || '').trim(),
+      };
       const items = Array.isArray(payload)
         ? payload
         : Array.isArray(payload.questions)
@@ -745,7 +756,7 @@
 
       const summary = { imported: 0, skipped: 0 };
       items.forEach((question) => {
-        const normalized = normalizeImportedQuestion(question, defaults);
+        const normalized = normalizeImportedQuestion(question, defaults, importMeta);
         if (!normalized) {
           summary.skipped += 1;
           return;
@@ -844,9 +855,10 @@
     exam.questionIds = [...new Set([...(exam.questionIds || []), questionId])];
   }
 
-  function normalizeImportedQuestion(question, defaults) {
+  function normalizeImportedQuestion(question, defaults, meta = {}) {
     if (!question || typeof question !== 'object') return null;
     const type = String(question.type || (question.stimulus ? 'cq' : 'mcq')).toLowerCase();
+    const partLabel = String(question.part || question.section || (meta.partWise ? (meta.defaultPart || question.subject || defaults.subject || defaults.topic || '') : '')).trim();
     if (type === 'cq') {
       const subQuestions = Array.isArray(question.subQuestions) ? question.subQuestions.filter((item) => item && (item.prompt || item.answer || item.label)) : [];
       const stimulus = String(question.stimulus || question.question || '').trim();
@@ -858,7 +870,8 @@
         group: question.group || defaults.group,
         subject: question.subject || defaults.subject,
         topic: question.topic || defaults.topic,
-        section: question.section || question.topic || defaults.topic,
+        section: partLabel || question.section || question.topic || defaults.topic,
+        partTagged: !!meta.partWise,
         stimulus,
         subQuestions: subQuestions.map((item, index) => ({
           label: String(item.label || String.fromCharCode(65 + index)).trim(),
@@ -867,6 +880,7 @@
         })),
         image: question.image || '',
         createdAt: new Date().toISOString(),
+        importedAt: new Date().toISOString(),
       };
     }
 
@@ -886,13 +900,15 @@
       group: question.group || defaults.group,
       subject: question.subject || defaults.subject,
       topic: question.topic || defaults.topic,
-      section: question.section || question.topic || defaults.topic,
+      section: partLabel || question.section || question.topic || defaults.topic,
+      partTagged: !!meta.partWise,
       question: text,
       options: finalOptions,
       correct,
       explanation: String(question.explanation || '').trim(),
       image: question.image || '',
       createdAt: new Date().toISOString(),
+      importedAt: new Date().toISOString(),
     };
   }
 
@@ -945,7 +961,12 @@
     const target = document.getElementById('questionList');
     if (!target) return;
     if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
-    target.innerHTML = state.questions.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${formatMathForDisplay(question.question || question.stimulus || 'Question')}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
+    const ordered = [...state.questions].sort((a, b) => {
+      const importedDiff = new Date(b.importedAt || 0).getTime() - new Date(a.importedAt || 0).getTime();
+      if (importedDiff !== 0) return importedDiff;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
+    target.innerHTML = ordered.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${formatMathForDisplay(question.question || question.stimulus || 'Question')}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
     target.querySelectorAll('[data-edit-question]').forEach((button) => button.addEventListener('click', () => startQuestionEdit(button.dataset.editQuestion)));
     target.querySelectorAll('[data-delete-question]').forEach((button) => button.addEventListener('click', () => {
       state.questions = state.questions.filter((item) => item.id !== button.dataset.deleteQuestion);
@@ -1106,7 +1127,7 @@
 
   function bindPrintConfig() {
     const config = state.settings.printConfig;
-    ['printHeaderTitle', 'printExamCode', 'printClassLabel', 'printInstructions', 'printDurationLabel', 'printMarksLabel', 'printHeaderTheme', 'printNumberPrefix', 'printColumns', 'printSetCount', 'printSetLabelStyle'].forEach((id) => {
+    ['printHeaderTitle', 'printExamCode', 'printClassLabel', 'printInstructions', 'printDurationLabel', 'printMarksLabel', 'printPaperTitle', 'printPaperSubject', 'printPaperDate', 'printPaperType', 'printHeaderTheme', 'printNumberPrefix', 'printColumns', 'printSetCount', 'printSetLabelStyle'].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
       const key = id.replace('print', '');
@@ -1117,6 +1138,10 @@
         Instructions: 'instructions',
         DurationLabel: 'durationLabel',
         MarksLabel: 'marksLabel',
+        PaperTitle: 'paperTitle',
+        PaperSubject: 'paperSubject',
+        PaperDate: 'paperDate',
+        PaperType: 'paperType',
         HeaderTheme: 'headerTheme',
         NumberPrefix: 'numberPrefix',
         Columns: 'columns',
@@ -1128,6 +1153,7 @@
         config[map[key]] = map[key] === 'setCount' ? Number(el.value || 1) : el.value;
         saveState();
         renderPrintPreviewMeta();
+        renderLivePrintPreview(findExam(selectedManageExamId));
       });
     });
     ['printShowAnswers', 'printShowExplanation', 'printShuffleQuestions', 'printShuffleOptions', 'printAnswerSheet', 'printCompactMode'].forEach((id) => {
@@ -1143,7 +1169,12 @@
       };
       const key = keyMap[id];
       el.checked = !!config[key];
-      el.addEventListener('change', () => { config[key] = el.checked; saveState(); renderPrintPreviewMeta(); });
+      el.addEventListener('change', () => {
+        config[key] = el.checked;
+        saveState();
+        renderPrintPreviewMeta();
+        renderLivePrintPreview(findExam(selectedManageExamId));
+      });
     });
     renderPrintPreviewMeta();
   }
@@ -1152,14 +1183,105 @@
     const preview = document.getElementById('printPreviewMeta');
     if (!preview) return;
     const config = state.settings.printConfig;
-    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Theme: ${escapeHtml(config.headerTheme || 'classic')}</p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)} · Compact: ${config.compactMode ? 'On' : 'Off'}</p></div>`;
+    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Paper: ${escapeHtml(config.paperTitle || '(Use exam title)')} · ${escapeHtml(config.paperSubject || '(Use exam subject)')}</p><p>Date/Type: ${escapeHtml(config.paperDate || '(Use exam date)')} · ${escapeHtml(config.paperType || '(Use exam type)')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Theme: ${escapeHtml(config.headerTheme || 'classic')}</p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)} · Compact: ${config.compactMode ? 'On' : 'Off'}</p></div>`;
+  }
+
+  function renderLivePrintPreview(exam) {
+    const panel = document.getElementById('livePrintPreviewPanel');
+    if (!panel) return;
+    if (!exam) {
+      panel.innerHTML = '<p class="muted-copy">Live print preview will appear after selecting an exam.</p>';
+      return;
+    }
+    const sets = buildExamSetVariants(exam);
+    if (!sets.length) {
+      panel.innerHTML = '<p class="muted-copy">No question mapped yet for this exam.</p>';
+      return;
+    }
+    if (!livePreviewSelectedSet || !sets.some((item) => item.setCode === livePreviewSelectedSet)) livePreviewSelectedSet = sets[0].setCode;
+    const activeSet = sets.find((item) => item.setCode === livePreviewSelectedSet) || sets[0];
+    const layoutKey = `${exam.id}::${activeSet.setCode}`;
+    const layout = livePreviewLayouts.get(layoutKey);
+    const renderedQuestions = layout?.questions?.length
+      ? layout.questions
+      : activeSet.setQuestions.map((question, qIndex) => ({
+        id: question.id || `${activeSet.setCode}-q-${qIndex}`,
+        question,
+        optionsOrder: (question.options || []).map((_, optionIndex) => optionIndex),
+      }));
+    const answerKey = renderedQuestions.map((entry) => {
+      if (entry.question.type !== 'mcq') return 'CQ';
+      const optionIndex = entry.optionsOrder[Number(entry.question.correct) || 0] ?? 0;
+      return String.fromCharCode(65 + optionIndex);
+    });
+    const paperQuestions = renderedQuestions.map((entry, index) => {
+      const question = entry.question;
+      const displaySubject = question.subject || exam.subject || '';
+      const options = entry.optionsOrder.map((sourceIndex, localIndex) => `<li draggable="true" data-option-drag="${index}::${sourceIndex}"><span class="option-label">${String.fromCharCode(65 + localIndex)}.</span> <span>${formatMathForDisplay((question.options || [])[sourceIndex] || '', { subject: displaySubject })}</span></li>`).join('');
+      if (question.type === 'cq') {
+        const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}</div>`).join('');
+        return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${subs || '<p class="muted-copy">No sub-question found.</p>'}</article>`;
+      }
+      return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><ul class="option-list option-list--grid live-preview-options">${options}</ul></article>`;
+    }).join('');
+    panel.innerHTML = `<h4>Live Print Preview</h4><div class="field-row"><label>Set Filter<select id="livePreviewSetFilter">${sets.map((item) => `<option value="${item.setCode}" ${item.setCode === activeSet.setCode ? 'selected' : ''}>${escapeHtml(item.setLabel)}</option>`).join('')}</select></label></div><p class="muted-copy">Print er moto exact question paper preview. Drag kore question/option position change korle answer key o update hobe.</p><section class="paper set-paper live-preview-paper"><div class="board-head board-head--${escapeAttr(activeSet.config.headerTheme || 'classic')}"><h1>${formatMathForDisplay(activeSet.config.headerTitle)}</h1><h2>${formatMathForDisplay(activeSet.config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(activeSet.setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(activeSet.config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(activeSet.config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(activeSet.config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(activeSet.config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(activeSet.config.paperSubject || exam.subject)} · ${escapeHtml(activeSet.config.paperDate || exam.examDate)} · ${escapeHtml(activeSet.config.paperType || exam.examType)}</p><p class="instructions">${formatMathForDisplay(activeSet.config.instructions)}</p></div><div class="question-grid">${paperQuestions || '<p>No assigned question found.</p>'}</div></section><div class="table-wrap"><table class="result-table"><thead><tr><th>Q. No</th><th>Answer Key</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${item}</td></tr>`).join('')}</tbody></table></div>`;
+    panel.querySelector('#livePreviewSetFilter')?.addEventListener('change', (event) => {
+      livePreviewSelectedSet = event.target.value || '';
+      renderLivePrintPreview(exam);
+    });
+    bindLivePreviewDrag(panel, exam, activeSet, renderedQuestions);
+    queueTypeset();
+  }
+
+  function bindLivePreviewDrag(panel, exam, activeSet, renderedQuestions) {
+    const layoutKey = `${exam.id}::${activeSet.setCode}`;
+    let questionDragFrom = -1;
+    panel.querySelectorAll('[data-question-drag]').forEach((card) => {
+      card.addEventListener('dragstart', () => { questionDragFrom = Number(card.dataset.questionDrag); });
+      card.addEventListener('dragover', (event) => event.preventDefault());
+      card.addEventListener('drop', () => {
+        const to = Number(card.dataset.questionDrag);
+        if (Number.isNaN(questionDragFrom) || Number.isNaN(to) || questionDragFrom < 0 || to < 0 || questionDragFrom === to) return;
+        const next = [...renderedQuestions];
+        const [moved] = next.splice(questionDragFrom, 1);
+        next.splice(to, 0, moved);
+        livePreviewLayouts.set(layoutKey, { questions: next });
+        renderLivePrintPreview(exam);
+      });
+    });
+    let optionDragFrom = null;
+    panel.querySelectorAll('[data-option-drag]').forEach((item) => {
+      item.addEventListener('dragstart', () => {
+        const [qIndex, optionIndex] = String(item.dataset.optionDrag || '').split('::').map((value) => Number(value));
+        optionDragFrom = { qIndex, optionIndex };
+      });
+      item.addEventListener('dragover', (event) => event.preventDefault());
+      item.addEventListener('drop', () => {
+        const [toQIndex, toOptionIndex] = String(item.dataset.optionDrag || '').split('::').map((value) => Number(value));
+        if (!optionDragFrom || optionDragFrom.qIndex !== toQIndex || optionDragFrom.optionIndex === toOptionIndex) return;
+        const next = [...renderedQuestions];
+        const order = [...next[toQIndex].optionsOrder];
+        const fromPos = order.indexOf(optionDragFrom.optionIndex);
+        const toPos = order.indexOf(toOptionIndex);
+        if (fromPos < 0 || toPos < 0) return;
+        const [moved] = order.splice(fromPos, 1);
+        order.splice(toPos, 0, moved);
+        next[toQIndex] = { ...next[toQIndex], optionsOrder: order };
+        livePreviewLayouts.set(layoutKey, { questions: next });
+        renderLivePrintPreview(exam);
+      });
+    });
   }
 
   function renderExamManager() {
     const target = document.getElementById('examManagerList');
     const filterForm = document.getElementById('questionFilterForm');
     if (!target) return;
-    if (!state.exams.length) return target.innerHTML = emptyState('No exams available.');
+    if (!state.exams.length) {
+      target.innerHTML = emptyState('No exams available.');
+      renderPrintFormatActions(null);
+      return;
+    }
     const scopedExams = selectedManageExamId ? state.exams.filter((exam) => exam.id === selectedManageExamId) : state.exams;
     if (!scopedExams.length) {
       if (filterForm) filterForm.style.display = '';
@@ -1170,6 +1292,7 @@
     if (!selectedManageExamId) {
       if (filterForm) filterForm.style.display = 'none';
       target.innerHTML = scopedExams.map((exam) => `<article class="entity-card"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><a class="toolbar-button" href="handle-exams.html?examId=${exam.id}">Manage</a></article>`).join('');
+      renderPrintFormatActions(null);
       return;
     }
 
@@ -1223,8 +1346,10 @@
     if (!holder) return;
     if (!exam) {
       holder.innerHTML = '<p class="muted-copy">Select an exam to use Edit/Publish/Download/Print actions.</p>';
+      renderLivePrintPreview(null);
       return;
     }
+    renderLivePrintPreview(exam);
     holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
     holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', () => {
       const item = findExam(exam.id);
@@ -1296,10 +1421,12 @@
       if (output) output.innerHTML = '<p class="muted-copy">Exam not found.</p>';
       return;
     }
-    const answerKey = deriveStaticAnswerKey(exam);
+    const setVariants = buildExamSetVariants(exam);
+    const defaultKey = setVariants[0]?.answerKey || [];
     const detected = [];
     for (const file of imageFiles) {
-      const omr = await detectOmrFromImage(file, answerKey.length);
+      const omr = await detectOmrFromImage(file, defaultKey.length);
+      const answerKey = deriveStaticAnswerKey(exam, omr.setCode);
       const student = students.get(omr.roll) || {};
       const result = evaluateDetectedAnswers(answerKey, omr.answers);
       detected.push({
@@ -1324,11 +1451,50 @@
       : '<p class="muted-copy">No valid OMR detected.</p>';
   }
 
-  function deriveStaticAnswerKey(exam) {
+  function deriveStaticAnswerKey(exam, setCode = '') {
+    if (!exam) return [];
+    const variants = buildExamSetVariants(exam);
+    if (!variants.length) return [];
+    const selected = variants.find((item) => !setCode || String(item.setCode).toUpperCase() === String(setCode).toUpperCase()) || variants[0];
+    return selected.answerKey;
+  }
+
+  function buildExamSetVariants(exam) {
+    if (!exam) return [];
     const snapshot = exam.published && exam.publishedSnapshot ? exam.publishedSnapshot : null;
+    const config = snapshot?.config ? mergePrintConfig(snapshot.config) : state.settings.printConfig;
     const questions = snapshot?.questions
-      ? snapshot.questions
+      ? snapshot.questions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: (question.subQuestions || []).map((item) => ({ ...item })) }))
       : (exam.questionIds || []).map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
+    const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
+    return Array.from({ length: safeSetCount }, (_, setIndex) => {
+      const setCode = config.setLabelStyle === 'numeric' ? String(setIndex + 1) : String.fromCharCode(65 + setIndex);
+      const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${setCode}`;
+      const generated = buildQuestionSet(questions, config, { seed: `${exam.id}-${setCode}` });
+      const { setQuestions, answerKey } = applyLiveLayoutToSet(exam.id, setCode, generated.setQuestions);
+      return { setIndex, setCode, setLabel, setQuestions, answerKey, config };
+    });
+  }
+
+  function applyLiveLayoutToSet(examId, setCode, setQuestions) {
+    const layout = livePreviewLayouts.get(`${examId}::${setCode}`);
+    if (!layout?.questions?.length) return { setQuestions, answerKey: deriveAnswerKeyFromQuestions(setQuestions) };
+    const normalized = layout.questions.map((entry) => {
+      const baseOptions = entry.question?.options || [];
+      const optionsOrder = entry.optionsOrder?.length ? entry.optionsOrder : baseOptions.map((_, idx) => idx);
+      const orderedOptions = optionsOrder.map((sourceIndex) => baseOptions[sourceIndex]).filter((item) => typeof item !== 'undefined');
+      const originalCorrect = Number(entry.question?.correct) || 0;
+      const nextCorrect = optionsOrder.indexOf(originalCorrect);
+      return {
+        ...entry.question,
+        options: orderedOptions.length ? orderedOptions : baseOptions,
+        correct: nextCorrect >= 0 ? nextCorrect : originalCorrect,
+      };
+    });
+    return { setQuestions: normalized, answerKey: deriveAnswerKeyFromQuestions(normalized) };
+  }
+
+  function deriveAnswerKeyFromQuestions(questions = []) {
     return questions.map((question) => {
       if (question.type !== 'mcq') return 'CQ';
       return String.fromCharCode(65 + (Number(question.correct) || 0));
@@ -1381,22 +1547,73 @@
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(imageBitmap, 0, 0, canvas.width, canvas.height);
     const full = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const templateWidth = canvas.width;
+    const templateHeight = canvas.height;
+    const scoreDarkSquare = (startX, startY, size = 44, step = 4) => {
+      let dark = 0;
+      let count = 0;
+      for (let y = startY; y < startY + size; y += step) {
+        for (let x = startX; x < startX + size; x += step) {
+          if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) continue;
+          const idx = (y * canvas.width + x) * 4;
+          const gray = (full[idx] + full[idx + 1] + full[idx + 2]) / 3;
+          dark += 255 - gray;
+          count += 1;
+        }
+      }
+      return count ? dark / count : 0;
+    };
+    const findAnchorInRegion = (minX, maxX, minY, maxY) => {
+      let best = null;
+      let bestScore = -1;
+      const size = 44;
+      for (let y = minY; y <= maxY - size; y += 10) {
+        for (let x = minX; x <= maxX - size; x += 10) {
+          const score = scoreDarkSquare(x, y, size, 4);
+          if (score > bestScore) {
+            bestScore = score;
+            best = { x: x + (size / 2), y: y + (size / 2), score };
+          }
+        }
+      }
+      return best && best.score > 70 ? best : null;
+    };
+    const anchorTL = findAnchorInRegion(10, 520, 10, 520);
+    const anchorTR = findAnchorInRegion(canvas.width - 520, canvas.width - 10, 10, 520);
+    const anchorBL = findAnchorInRegion(10, 520, canvas.height - 520, canvas.height - 10);
+    const anchorBR = findAnchorInRegion(canvas.width - 520, canvas.width - 10, canvas.height - 520, canvas.height - 10);
+    const hasAnchors = !!(anchorTL && anchorTR && anchorBL && anchorBR);
+    const mapTemplateToImage = (x, y) => {
+      if (!hasAnchors) return { x, y };
+      const u = x / templateWidth;
+      const v = y / templateHeight;
+      return {
+        x: ((1 - u) * (1 - v) * anchorTL.x) + (u * (1 - v) * anchorTR.x) + ((1 - u) * v * anchorBL.x) + (u * v * anchorBR.x),
+        y: ((1 - u) * (1 - v) * anchorTL.y) + (u * (1 - v) * anchorTR.y) + ((1 - u) * v * anchorBL.y) + (u * v * anchorBR.y),
+      };
+    };
+    const scaleFactor = hasAnchors
+      ? Math.max(0.72, Math.min(1.35, (((Math.hypot(anchorTR.x - anchorTL.x, anchorTR.y - anchorTL.y) / templateWidth) + (Math.hypot(anchorBL.x - anchorTL.x, anchorBL.y - anchorTL.y) / templateHeight)) / 2)))
+      : 1;
     const bubbleFillScore = (cx, cy, innerRadius = 6, outerRadius = 11) => {
+      const mapped = mapTemplateToImage(cx, cy);
+      const adjustedInner = Math.max(4, Math.round(innerRadius * scaleFactor));
+      const adjustedOuter = Math.max(adjustedInner + 2, Math.round(outerRadius * scaleFactor));
       let innerDark = 0;
       let innerCount = 0;
       let ringDark = 0;
       let ringCount = 0;
-      for (let y = -outerRadius; y <= outerRadius; y += 1) {
-        for (let x = -outerRadius; x <= outerRadius; x += 1) {
-          const px = Math.floor(cx + x);
-          const py = Math.floor(cy + y);
+      for (let y = -adjustedOuter; y <= adjustedOuter; y += 1) {
+        for (let x = -adjustedOuter; x <= adjustedOuter; x += 1) {
+          const px = Math.floor(mapped.x + x);
+          const py = Math.floor(mapped.y + y);
           if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) continue;
           const dist2 = x * x + y * y;
-          if (dist2 > outerRadius * outerRadius) continue;
+          if (dist2 > adjustedOuter * adjustedOuter) continue;
           const idx = (py * canvas.width + px) * 4;
           const gray = (full[idx] + full[idx + 1] + full[idx + 2]) / 3;
           const dark = 255 - gray;
-          if (dist2 <= innerRadius * innerRadius) {
+          if (dist2 <= adjustedInner * adjustedInner) {
             innerDark += dark;
             innerCount += 1;
           } else {
@@ -1622,6 +1839,41 @@
     fileInput.addEventListener('change', syncOmrDrafts);
   }
 
+  function initScanOmrPage() {
+    initResultAnalysePage();
+    const examSelect = document.getElementById('resultExamSelect');
+    const downloadBtn = document.getElementById('scanOmrDownloadBtn');
+    const printBtn = document.getElementById('scanOmrPrintBtn');
+    const questionPaperBtn = document.getElementById('scanOmrQuestionPaperBtn');
+    if (!examSelect || !downloadBtn || !printBtn || !questionPaperBtn) return;
+
+    const getExamId = () => examSelect.value || '';
+    downloadBtn.addEventListener('click', () => {
+      const examId = getExamId();
+      if (!examId) return showToast('Exam select করুন।', 'error');
+      const exam = findExam(examId);
+      if (!exam) return showToast('Exam not found.', 'error');
+      const blob = new Blob([buildOmrSheetHtml(examId)], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${(exam.title || 'exam').replace(/\s+/g, '-').toLowerCase()}-omr-sheet.html`;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast('OMR sheet downloaded.');
+    });
+    printBtn.addEventListener('click', () => {
+      const examId = getExamId();
+      if (!examId) return showToast('Exam select করুন।', 'error');
+      printOmrSheet(examId);
+    });
+    questionPaperBtn.addEventListener('click', () => {
+      const examId = getExamId();
+      if (!examId) return showToast('Exam select করুন।', 'error');
+      printExamPaper(examId);
+    });
+  }
+
   function renderOmrUploadPreview(files, target) {
     const list = [...(files || [])];
     if (!list.length) {
@@ -1637,17 +1889,18 @@
   async function analyseOmrBatchForExam(examId, imageFiles, rollOverrides = new Map()) {
     const exam = findExam(examId);
     if (!exam) return [];
-    const answerKey = deriveStaticAnswerKey(exam);
+    const defaultKey = deriveStaticAnswerKey(exam);
     const studentMap = buildStudentRollMap();
     const rows = [];
     const getFileKey = (file) => `${file.name}__${file.size}__${file.lastModified}`;
     for (const file of imageFiles) {
-      const detected = await detectOmrFromImage(file, answerKey.length);
+      const detected = await detectOmrFromImage(file, defaultKey.length);
       const override = rollOverrides.get(getFileKey(file));
       const finalRoll = typeof override === 'string' ? override : (override?.roll || detected.roll || '');
       const finalSet = typeof override === 'object' ? (override?.setCode || detected.setCode || '') : (detected.setCode || '');
       const student = studentMap.get(finalRoll) || {};
       const finalName = (typeof override === 'object' && override?.student_name) ? override.student_name : (student.name || '');
+      const answerKey = deriveStaticAnswerKey(exam, finalSet) || defaultKey;
       const evaluated = evaluateDetectedAnswers(answerKey, detected.answers);
       const breakdown = buildAnswerBreakdown(answerKey, detected.answers);
       if (student.id) {
@@ -1732,37 +1985,38 @@
     if (!exam) {
       return '<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Exam Not Found</title></head><body><p>Exam not found.</p></body></html>';
     }
-    const snapshot = exam.published && exam.publishedSnapshot ? exam.publishedSnapshot : null;
-    const config = snapshot?.config ? mergePrintConfig(snapshot.config) : state.settings.printConfig;
-    const questions = snapshot?.questions
-      ? snapshot.questions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: (question.subQuestions || []).map((item) => ({ ...item })) }))
-      : exam.questionIds.map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
-    const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
+    const variants = buildExamSetVariants(exam);
+    const config = variants[0]?.config || state.settings.printConfig;
     const setMarkup = [];
     const answerSheets = [];
     const headerTheme = String(config.headerTheme || 'classic');
     const compactClass = config.compactMode ? 'compact-mode' : '';
 
-    for (let setIndex = 0; setIndex < safeSetCount; setIndex += 1) {
-      const { setQuestions, answerKey } = buildQuestionSet(questions, config);
-      const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${String.fromCharCode(65 + setIndex)}`;
+    for (const variant of variants) {
+      const { setQuestions, answerKey } = variant;
+      const setLabel = variant.setLabel;
       const solutionUrl = getSolutionPublicUrl(exam.id);
       const qrPayload = encodeURIComponent(solutionUrl);
       const qrBlock = includeSolutionQr ? `<div class="solution-qr solution-qr--paper"><img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${qrPayload}" alt="Solution Download QR" /><span class="solution-qr__hint">Solution QR</span></div>` : '';
+      let currentSection = '';
       const list = setQuestions.map((question, index) => {
         const number = `${index + 1}`;
         const displaySubject = question.subject || exam.subject || '';
         const title = question.question || question.stimulus || '';
         const showAnswers = forceAnswers || config.showAnswers;
         const showExplanation = forceExplanation || config.showExplanation;
+        const sectionHeading = question.section && question.section !== currentSection
+          ? `<div class="part-heading">${escapeHtml(question.section)}</div>`
+          : '';
+        currentSection = question.section || currentSection;
         const questionBody = question.type === 'cq'
           ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
           : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span></li>`).join('')}</ul>${showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '', { subject: displaySubject })}</p>` : ''}`;
         const explanation = showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
-        return `<article class="print-question"><h3>${number}. ${formatMathForDisplay(title, { subject: displaySubject })}</h3>${questionBody}${explanation}</article>`;
+        return `${sectionHeading}<article class="print-question"><h3>${number}. ${formatMathForDisplay(title, { subject: displaySubject })}</h3>${questionBody}${explanation}</article>`;
       }).join('');
 
-      setMarkup.push(`<section class="paper set-paper">${qrBlock}<div class="board-head board-head--${escapeAttr(headerTheme)}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
+      setMarkup.push(`<section class="paper set-paper">${qrBlock}<div class="board-head board-head--${escapeAttr(headerTheme)}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(config.paperSubject || exam.subject)} · ${escapeHtml(config.paperDate || exam.examDate)} · ${escapeHtml(config.paperType || exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
 
       if (config.includeAnswerSheet && !disableAnswerSheet) {
         const omrRows = answerKey.map((item, idx) => {
@@ -1774,7 +2028,7 @@
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:10px;top:10px;z-index:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{column-gap:10px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.part-heading{break-inside:avoid;page-break-inside:avoid;font-weight:800;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:4px 8px;margin:0 0 6px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:10px;top:10px;z-index:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{column-gap:10px}.compact-mode .part-heading{font-size:12px;padding:3px 7px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
   }
 
   function getSolutionPublicUrl(examId) {
@@ -1825,9 +2079,32 @@
     return { ...structuredClone(defaultState).settings.printConfig, ...config };
   }
 
-  function buildQuestionSet(sourceQuestions, config) {
-    let setQuestions = sourceQuestions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: question.subQuestions ? question.subQuestions.map((item) => ({ ...item })) : [] }));
-    if (config.shuffleQuestions) setQuestions = shuffleArray(setQuestions);
+  function buildQuestionSet(sourceQuestions, config, options = {}) {
+    const rng = createSeededRandom(options.seed || '');
+    const clonedQuestions = sourceQuestions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: question.subQuestions ? question.subQuestions.map((item) => ({ ...item })) : [] }));
+    const arrangeByPart = (items, shouldShuffle) => {
+      const hasPartTagged = items.some((item) => item.partTagged && item.section);
+      if (!hasPartTagged) return shouldShuffle ? shuffleArray(items, rng) : items;
+      const buckets = [];
+      const index = new Map();
+      items.forEach((item) => {
+        const key = String(item.section || 'Part').trim() || 'Part';
+        if (!index.has(key)) {
+          index.set(key, buckets.length);
+          buckets.push({ key, items: [] });
+        }
+        buckets[index.get(key)].items.push(item);
+      });
+      return buckets.flatMap((bucket) => (shouldShuffle ? shuffleArray(bucket.items, rng) : bucket.items));
+    };
+    const cqQuestions = clonedQuestions.filter((question) => question.type === 'cq');
+    const mcqQuestions = clonedQuestions.filter((question) => question.type !== 'cq');
+    let setQuestions = [];
+    if (config.shuffleQuestions) {
+      setQuestions = [...arrangeByPart(cqQuestions, true), ...arrangeByPart(mcqQuestions, true)];
+    } else {
+      setQuestions = [...arrangeByPart(cqQuestions, false), ...arrangeByPart(mcqQuestions, false)];
+    }
     const answerKey = [];
     setQuestions = setQuestions.map((question) => {
       if (question.type !== 'mcq') {
@@ -1836,7 +2113,7 @@
       }
       if (config.shuffleOptions && question.options?.length) {
         const zipped = question.options.map((option, idx) => ({ option, idx }));
-        const shuffled = shuffleArray(zipped);
+        const shuffled = shuffleArray(zipped, rng);
         const newCorrect = shuffled.findIndex((item) => item.idx === question.correct);
         const next = { ...question, options: shuffled.map((item) => item.option), correct: newCorrect >= 0 ? newCorrect : 0 };
         answerKey.push(String.fromCharCode(65 + next.correct));
@@ -1848,13 +2125,29 @@
     return { setQuestions, answerKey };
   }
 
-  function shuffleArray(items) {
+  function shuffleArray(items, rng = Math.random) {
     const arr = [...items];
     for (let i = arr.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(rng() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }
     return arr;
+  }
+
+  function createSeededRandom(seedText = '') {
+    let seed = 2166136261;
+    const text = String(seedText || 'default-seed');
+    for (let i = 0; i < text.length; i += 1) {
+      seed ^= text.charCodeAt(i);
+      seed = Math.imul(seed, 16777619);
+    }
+    return () => {
+      seed += 0x6D2B79F5;
+      let t = seed;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
   }
 
   function latexToPlainText(text) {
@@ -1903,12 +2196,8 @@
   function buildOmrSheetHtml(examId) {
     const exam = findExam(examId);
     if (!exam) return '<!DOCTYPE html><html><head><meta charset="utf-8" /><title>OMR Not Found</title></head><body><p>Exam not found.</p></body></html>';
-    const snapshot = exam.published && exam.publishedSnapshot ? exam.publishedSnapshot : null;
-    const config = snapshot?.config ? mergePrintConfig(snapshot.config) : state.settings.printConfig;
-    const questions = snapshot?.questions
-      ? snapshot.questions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: (question.subQuestions || []).map((item) => ({ ...item })) }))
-      : exam.questionIds.map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
-    const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
+    const variants = buildExamSetVariants(exam);
+    const config = variants[0]?.config || state.settings.printConfig;
     const pages = [];
     const buildDigitColumns = (digits, name) => {
       const columns = Array.from({ length: digits }, (_, colIndex) => {
@@ -1917,9 +2206,9 @@
       }).join('');
       return `<div class="digit-card"><div class="digit-card__title">${name}</div><div class="digit-card__hint">উপরে ঘরে সংখ্যা লিখুন, পরে নিচে একই সংখ্যা ভরাট করুন</div><div class="digit-cols">${columns}</div></div>`;
     };
-    for (let setIndex = 0; setIndex < safeSetCount; setIndex += 1) {
-      const { answerKey } = buildQuestionSet(questions, config);
-      const setLabel = config.setLabelStyle === 'numeric' ? `${setIndex + 1}` : String.fromCharCode(65 + setIndex);
+    for (const variant of variants) {
+      const { answerKey } = variant;
+      const setLabel = variant.setCode;
       const densityClass = answerKey.length > 80 ? 'is-dense-3' : (answerKey.length > 50 ? 'is-dense-2' : (answerKey.length > 30 ? 'is-dense-1' : ''));
       const colSize = Math.ceil(answerKey.length / 3);
       const questionRows = `<div class="omr-columns">${Array.from({ length: 3 }, (_, col) => {
@@ -1930,9 +2219,9 @@
         }).join('');
         return `<div class="omr-col">${columnRows}</div>`;
       }).join('')}</div>`;
-      pages.push(`<section class="omr-page ${densityClass}"><header class="board-head board-head--${escapeAttr(config.headerTheme || 'classic')}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span><span><strong>Exam Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p></header><div class="omr-warning">উত্তরপত্রে নির্দিষ্ট স্থান ব্যতীত অন্য কোথাও লেখা যাবে না</div><div class="omr-layout"><div class="omr-left"><div class="omr-table-head"><span>প্রশ্ন নম্বর</span><span>উত্তর</span></div><div class="omr-question-grid">${questionRows || '<p>No assigned question found.</p>'}</div></div><div class="omr-right"><div class="id-grid">${buildDigitColumns(6, 'রোল নম্বর')}${buildDigitColumns(8, 'রেজিস্ট্রেশন নম্বর')}</div><div class="set-code-box"><div class="digit-card"><div class="digit-card__title">সেট কোড</div><div class="set-bubbles"><span class="set-bubble ${setLabel === 'A' || setLabel === '1' ? 'is-active' : ''}">A</span><span class="set-bubble ${setLabel === 'B' || setLabel === '2' ? 'is-active' : ''}">B</span><span class="set-bubble ${setLabel === 'C' || setLabel === '3' ? 'is-active' : ''}">C</span><span class="set-bubble ${setLabel === 'D' || setLabel === '4' ? 'is-active' : ''}">D</span></div></div></div><div class="name-card"><div><strong>শিক্ষার্থীর নাম</strong></div><div class="line"></div><div><strong>ফোন নম্বর</strong></div><div class="line"></div><div><strong>শিক্ষার্থীর স্বাক্ষর</strong></div><div class="line"></div></div></div></div><div class="omr-note"><strong>নির্দেশাবলী:</strong> কালো বল পয়েন্ট কলম দিয়ে বৃত্ত সম্পূর্ণ ভরাট করুন।</div></section>`);
+      pages.push(`<section class="omr-page ${densityClass}"><div class="timing-mark timing-mark--tl"></div><div class="timing-mark timing-mark--tr"></div><div class="timing-mark timing-mark--bl"></div><div class="timing-mark timing-mark--br"></div><div class="timing-rail"><span></span><span></span><span></span><span></span><span></span></div><header class="board-head board-head--${escapeAttr(config.headerTheme || 'classic')}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span><span><strong>Exam Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(config.paperSubject || exam.subject)} · ${escapeHtml(config.paperDate || exam.examDate)} · ${escapeHtml(config.paperType || exam.examType)}</p></header><div class="omr-warning">উত্তরপত্রে নির্দিষ্ট স্থান ব্যতীত অন্য কোথাও লেখা যাবে না</div><div class="omr-layout"><div class="omr-left"><div class="omr-table-head"><span>প্রশ্ন নম্বর</span><span>উত্তর</span></div><div class="omr-question-grid">${questionRows || '<p>No assigned question found.</p>'}</div></div><div class="omr-right"><div class="id-grid">${buildDigitColumns(6, 'রোল নম্বর')}${buildDigitColumns(8, 'রেজিস্ট্রেশন নম্বর')}</div><div class="set-code-box"><div class="digit-card"><div class="digit-card__title">সেট কোড</div><div class="set-bubbles"><span class="set-bubble ${setLabel === 'A' || setLabel === '1' ? 'is-active' : ''}">A</span><span class="set-bubble ${setLabel === 'B' || setLabel === '2' ? 'is-active' : ''}">B</span><span class="set-bubble ${setLabel === 'C' || setLabel === '3' ? 'is-active' : ''}">C</span><span class="set-bubble ${setLabel === 'D' || setLabel === '4' ? 'is-active' : ''}">D</span></div></div></div><div class="name-card"><div><strong>শিক্ষার্থীর নাম</strong></div><div class="line"></div><div><strong>ফোন নম্বর</strong></div><div class="line"></div><div><strong>শিক্ষার্থীর স্বাক্ষর</strong></div><div class="line"></div></div></div></div><div class="omr-note"><strong>নির্দেশাবলী:</strong> কালো বল পয়েন্ট কলম দিয়ে বৃত্ত সম্পূর্ণ ভরাট করুন।</div></section>`);
     }
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)} OMR</title><style>@page{size:A4 portrait;margin:6mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;color:#111;padding:8px;background:#fff}.omr-page{width:198mm;height:285mm;max-width:198mm;margin:0 auto 8px auto;border:2px solid #111;padding:8px 10px;box-sizing:border-box;page-break-after:always;page-break-inside:avoid;break-inside:avoid;overflow:hidden}.omr-page:last-child{page-break-after:auto}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}.board-head h1{margin:0;font-size:24px}.board-head h2{margin:2px 0 6px 0;font-size:18px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0}.omr-warning{text-align:center;border:2px solid #111;background:#fff0fb;color:#861657;font-weight:700;font-size:13px;padding:6px;margin:10px 0}.omr-layout{display:grid;grid-template-columns:1.5fr 1fr;gap:12px}.omr-left{border:1px solid #e879c4;padding:8px;background:#fff9fd}.omr-table-head{display:grid;grid-template-columns:88px 1fr;font-weight:700;font-size:13px;background:#ffd6f1;border:1px solid #e879c4;padding:4px 6px;margin-bottom:6px}.omr-question-grid{display:block}.omr-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 8px}.omr-col{display:grid;gap:4px}.omr-q-row{display:flex;align-items:center;gap:8px;border:1px solid #f3b0dc;background:#fff;padding:2px 3px}.qno{min-width:22px;font-weight:700}.bubble-group{display:flex;gap:5px}.bubble-group span{width:14px;height:14px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:#9d174d}.omr-right{display:flex;flex-direction:column;gap:8px}.id-grid{display:grid;grid-template-columns:1fr;gap:8px}.digit-card{border:1px solid #e879c4;background:#fff9fd;padding:6px}.digit-card__title{font-weight:700;font-size:12px;text-align:center;margin-bottom:2px}.digit-card__hint{text-align:center;font-size:10px;color:#7a1e4f;margin-bottom:4px}.digit-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:4px}.digit-col{display:flex;flex-direction:column;align-items:center;gap:2px}.digit-col__write{width:17px;height:17px;border:1px solid #7a1e4f;background:#fff}.digit-bubble{width:17px;height:17px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#9d174d}.set-code-box .set-bubbles{display:flex;justify-content:center;gap:8px;padding:2px 0}.set-bubble{width:20px;height:20px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.set-bubble.is-active{background:#c02686;color:#fff}.name-card{border:1px solid #e879c4;background:#fff;padding:8px;display:grid;grid-template-columns:1fr;gap:6px;font-size:12px}.line{border-bottom:1px solid #444;height:16px}.omr-note{margin-top:8px;font-size:12px;border-top:1px dashed #999;padding-top:6px}.omr-page.is-dense-1 .omr-columns{gap:4px 6px}.omr-page.is-dense-2 .bubble-group span{width:14px;height:14px;font-size:8px}.omr-page.is-dense-2 .qno{min-width:16px;font-size:10px}.omr-page.is-dense-3 .omr-layout{grid-template-columns:1.7fr 1fr;gap:8px}.omr-page.is-dense-3 .omr-columns{gap:3px 5px}.omr-page.is-dense-3 .omr-q-row{gap:3px;padding:1px 2px}.omr-page.is-dense-3 .bubble-group{gap:2px}.omr-page.is-dense-3 .bubble-group span{width:12px;height:12px;font-size:7px}.omr-page.is-dense-3 .qno{min-width:12px;font-size:9px}.omr-page.is-dense-3 .board-head h1{font-size:18px}.omr-page.is-dense-3 .board-head h2{font-size:13px}@media print{body{padding:0}}</style></head><body>${pages.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)} OMR</title><style>@page{size:A4 portrait;margin:6mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;color:#111;padding:8px;background:#fff}.omr-page{width:198mm;height:285mm;max-width:198mm;margin:0 auto 8px auto;border:2px solid #111;padding:8px 10px;box-sizing:border-box;page-break-after:always;page-break-inside:avoid;break-inside:avoid;overflow:hidden;position:relative}.omr-page:last-child{page-break-after:auto}.timing-mark{position:absolute;width:11mm;height:11mm;background:#000;z-index:3}.timing-mark--tl{left:4mm;top:4mm}.timing-mark--tr{right:4mm;top:4mm}.timing-mark--bl{left:4mm;bottom:4mm}.timing-mark--br{right:4mm;bottom:4mm}.timing-rail{position:absolute;left:4mm;top:24mm;bottom:24mm;display:flex;flex-direction:column;justify-content:space-between;z-index:3}.timing-rail span{width:8mm;height:8mm;background:#000;display:block}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}.board-head h1{margin:0;font-size:24px}.board-head h2{margin:2px 0 6px 0;font-size:18px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0}.omr-warning{text-align:center;border:2px solid #111;background:#fff0fb;color:#861657;font-weight:700;font-size:13px;padding:6px;margin:10px 0}.omr-layout{display:grid;grid-template-columns:1.5fr 1fr;gap:12px}.omr-left{border:1px solid #e879c4;padding:8px;background:#fff9fd}.omr-table-head{display:grid;grid-template-columns:88px 1fr;font-weight:700;font-size:13px;background:#ffd6f1;border:1px solid #e879c4;padding:4px 6px;margin-bottom:6px}.omr-question-grid{display:block}.omr-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 8px}.omr-col{display:grid;gap:4px}.omr-q-row{display:flex;align-items:center;gap:8px;border:1px solid #f3b0dc;background:#fff;padding:2px 3px}.qno{min-width:22px;font-weight:700}.bubble-group{display:flex;gap:5px}.bubble-group span{width:14px;height:14px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:#9d174d}.omr-right{display:flex;flex-direction:column;gap:8px}.id-grid{display:grid;grid-template-columns:1fr;gap:8px}.digit-card{border:1px solid #e879c4;background:#fff9fd;padding:6px}.digit-card__title{font-weight:700;font-size:12px;text-align:center;margin-bottom:2px}.digit-card__hint{text-align:center;font-size:10px;color:#7a1e4f;margin-bottom:4px}.digit-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:4px}.digit-col{display:flex;flex-direction:column;align-items:center;gap:2px}.digit-col__write{width:17px;height:17px;border:1px solid #7a1e4f;background:#fff}.digit-bubble{width:17px;height:17px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#9d174d}.set-code-box .set-bubbles{display:flex;justify-content:center;gap:8px;padding:2px 0}.set-bubble{width:20px;height:20px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.set-bubble.is-active{background:#c02686;color:#fff}.name-card{border:1px solid #e879c4;background:#fff;padding:8px;display:grid;grid-template-columns:1fr;gap:6px;font-size:12px}.line{border-bottom:1px solid #444;height:16px}.omr-note{margin-top:8px;font-size:12px;border-top:1px dashed #999;padding-top:6px}.omr-page.is-dense-1 .omr-columns{gap:4px 6px}.omr-page.is-dense-2 .bubble-group span{width:14px;height:14px;font-size:8px}.omr-page.is-dense-2 .qno{min-width:16px;font-size:10px}.omr-page.is-dense-3 .omr-layout{grid-template-columns:1.7fr 1fr;gap:8px}.omr-page.is-dense-3 .omr-columns{gap:3px 5px}.omr-page.is-dense-3 .omr-q-row{gap:3px;padding:1px 2px}.omr-page.is-dense-3 .bubble-group{gap:2px}.omr-page.is-dense-3 .bubble-group span{width:12px;height:12px;font-size:7px}.omr-page.is-dense-3 .qno{min-width:12px;font-size:9px}.omr-page.is-dense-3 .board-head h1{font-size:18px}.omr-page.is-dense-3 .board-head h2{font-size:13px}@media print{body{padding:0}}</style></head><body>${pages.join('')}</body></html>`;
   }
 
   function printOmrSheet(examId) {
@@ -2332,7 +2621,34 @@
     XLSX.writeFile(book, className ? `${className.replace(/\s+/g, '-').toLowerCase()}-students.xlsx` : 'all-students.xlsx');
   }
 
-  function buildStudentProfileMarkup(studentId, selectedAttemptIds = [], activeAttemptId = '') {
+  function buildSolutionQuestionPaperMarkup(exam, attempt) {
+    if (!exam || !attempt) return '<p class="muted-copy">Solution comparison unavailable.</p>';
+    const variants = buildExamSetVariants(exam);
+    const targetSet = variants.find((item) => String(item.setCode).toUpperCase() === String(attempt.omrSet || '').toUpperCase()) || variants[0];
+    if (!targetSet) return '<p class="muted-copy">No set data found for this exam.</p>';
+    const markedAnswers = attempt.studentAnswers || [];
+    const questionsMarkup = targetSet.setQuestions.map((question, index) => {
+      const displaySubject = question.subject || exam.subject || '';
+      if (question.type !== 'mcq') {
+        const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${item.answer ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer, { subject: displaySubject })}</div>` : ''}</div>`).join('');
+        const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
+        return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${subs || '<p class="muted-copy">CQ / written answer.</p>'}${explanation}</article>`;
+      }
+      const correct = targetSet.answerKey[index] || '-';
+      const marked = markedAnswers[index] || '-';
+      const options = (question.options || []).map((option, optionIndex) => {
+        const label = String.fromCharCode(65 + optionIndex);
+        const isMarked = label === marked;
+        const isCorrect = label === correct;
+        return `<li class="${isMarked ? 'is-marked' : ''} ${isCorrect ? 'is-correct' : ''}"><span class="option-label">${label}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span></li>`;
+      }).join('');
+      const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
+      return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><ul class="option-list option-list--grid">${options}</ul><p class="solution-legend"><strong>Marked:</strong> ${escapeHtml(marked)} · <strong>Correct:</strong> ${escapeHtml(correct)}</p>${explanation}</article>`;
+    }).join('');
+    return `<section class="paper live-preview-paper"><div class="board-head board-head--${escapeAttr(targetSet.config.headerTheme || 'classic')}"><h2>${formatMathForDisplay(exam.title)} · Solution Sheet</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(targetSet.setLabel)}</span><span><strong>Student Marked vs Correct</strong></span></div></div><div class="question-grid">${questionsMarkup || '<p>No question found.</p>'}</div></section>`;
+  }
+
+  function buildStudentProfileMarkup(studentId, selectedAttemptIds = [], activeAttemptId = '', activeSolutionAttemptId = '') {
     const student = state.students.find((item) => item.id === studentId);
     if (!student) return '<p class="muted-copy">Student not found.</p>';
     const attempts = state.attempts
@@ -2342,6 +2658,8 @@
     const detailAttempt = attempts.find((attempt) => attempt.id === activeAttemptId) || attempts[0] || null;
     const detailExam = detailAttempt ? findExam(detailAttempt.examId) : null;
     const detailBreakdown = detailAttempt?.answerBreakdown || [];
+    const solutionAttempt = attempts.find((attempt) => attempt.id === activeSolutionAttemptId) || detailAttempt;
+    const solutionExam = solutionAttempt ? findExam(solutionAttempt.examId) : null;
     const detailBreakdownMarkup = detailBreakdown.length
       ? `<div class="table-wrap"><table class="result-table"><thead><tr><th>Q. No</th><th>Correct</th><th>Student</th><th>Status</th></tr></thead><tbody>${detailBreakdown.map((item) => `<tr><td>${item.qno}</td><td>${item.correct}</td><td>${item.marked}</td><td>${item.status}</td></tr>`).join('')}</tbody></table></div>`
       : '<p class="muted-copy">এই exam-এর answer breakdown পাওয়া যায়নি।</p>';
@@ -2349,9 +2667,12 @@
     const examRows = attempts.map((attempt) => {
       const exam = findExam(attempt.examId);
       const pct = attempt.total ? ((attempt.score / attempt.total) * 100).toFixed(2) : '0.00';
-      return `<tr><td><input type="checkbox" data-attempt-select="${attempt.id}" ${selected.has(attempt.id) ? 'checked' : ''} /></td><td><button type="button" class="toolbar-button" data-attempt-view="${attempt.id}">Details</button></td><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
+      return `<tr><td><input type="checkbox" data-attempt-select="${attempt.id}" ${selected.has(attempt.id) ? 'checked' : ''} /></td><td><button type="button" class="toolbar-button" data-attempt-view="${attempt.id}">Details</button></td><td><button type="button" class="toolbar-button" data-attempt-solution="${attempt.id}">Solution Sheet</button></td><td>${escapeHtml(exam?.title || attempt.examId)}</td><td>${attempt.score}/${attempt.total}</td><td>${pct}%</td><td>${new Date(attempt.createdAt).toLocaleDateString()}</td></tr>`;
     }).join('');
-    return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>Student Profile</h1><p>Exam List + Detailed Result View</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><h3>Given Exams</h3><p class="muted-copy">যে exam গুলো marksheet এ রাখতে চান সেগুলো checkbox দিয়ে select করুন।</p><div class="table-wrap"><table class="result-table"><thead><tr><th>Select</th><th>Details</th><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${examRows || '<tr><td colspan="6">No exam result yet.</td></tr>'}</tbody></table></div><h3>Selected Exam Details</h3>${detailAttempt ? `<p><strong>Exam:</strong> ${escapeHtml(detailExam?.title || detailAttempt.examId)} · <strong>Full Marks:</strong> ${detailAttempt.total} · <strong>Obtained:</strong> ${detailAttempt.score}</p>${detailOmr}<h4>Answer-wise Status</h4>${detailBreakdownMarkup}` : '<p class="muted-copy">কোনো exam attempt পাওয়া যায়নি।</p>'}</section>`;
+    const solutionMarkup = solutionAttempt
+      ? `<div class="solution-sheet-box"><h4>Solution Sheet (${escapeHtml(solutionAttempt.omrSet || 'Set ?')})</h4><p class="muted-copy"><strong>Exam:</strong> ${escapeHtml(solutionExam?.title || solutionAttempt.examId)}</p>${buildSolutionQuestionPaperMarkup(solutionExam, solutionAttempt)}</div>`
+      : '<p class="muted-copy">Solution sheet পাওয়া যায়নি।</p>';
+    return `<section class="result-card marksheet-onepage"><header class="result-card__head"><h1>Student Profile</h1><p>Exam List + Detailed Result View</p></header><div class="result-card__meta"><div><strong>Student Name</strong><span>${escapeHtml(student.name)}</span></div><div><strong>Roll Number</strong><span>${escapeHtml(student.rollNumber || '')}</span></div><div><strong>Class</strong><span>${escapeHtml(student.className || '')}</span></div><div><strong>Institute</strong><span>${escapeHtml(student.institute || '')}</span></div><div><strong>Phone</strong><span>${escapeHtml(student.phone || '')}</span></div></div><h3>Given Exams</h3><p class="muted-copy">যে exam গুলো marksheet এ রাখতে চান সেগুলো checkbox দিয়ে select করুন।</p><div class="table-wrap"><table class="result-table"><thead><tr><th>Select</th><th>Details</th><th>Solution Sheet</th><th>Exam</th><th>Score</th><th>Percent</th><th>Date</th></tr></thead><tbody>${examRows || '<tr><td colspan="7">No exam result yet.</td></tr>'}</tbody></table></div><h3>Selected Exam Details</h3>${detailAttempt ? `<p><strong>Exam:</strong> ${escapeHtml(detailExam?.title || detailAttempt.examId)} · <strong>Full Marks:</strong> ${detailAttempt.total} · <strong>Obtained:</strong> ${detailAttempt.score}</p><div class="student-detail-grid"><div>${detailOmr}<h4>Answer-wise Status</h4>${detailBreakdownMarkup}</div><div>${solutionMarkup}</div></div>` : '<p class="muted-copy">কোনো exam attempt পাওয়া যায়নি।</p>'}</section>`;
   }
 
   function buildSelectedMarksheetMarkup(studentId, selectedAttemptIds = []) {
@@ -2380,15 +2701,20 @@
     const attempts = state.attempts.filter((attempt) => attempt.studentId === studentId);
     const selectedAttemptIds = new Set(attempts.map((attempt) => attempt.id));
     let activeAttemptId = attempts[0]?.id || '';
+    let activeSolutionAttemptId = attempts[0]?.id || '';
 
     const render = () => {
-      target.innerHTML = buildStudentProfileMarkup(studentId, [...selectedAttemptIds], activeAttemptId);
+      target.innerHTML = buildStudentProfileMarkup(studentId, [...selectedAttemptIds], activeAttemptId, activeSolutionAttemptId);
       target.querySelectorAll('[data-attempt-select]').forEach((checkbox) => checkbox.addEventListener('change', () => {
         if (checkbox.checked) selectedAttemptIds.add(checkbox.dataset.attemptSelect);
         else selectedAttemptIds.delete(checkbox.dataset.attemptSelect);
       }));
       target.querySelectorAll('[data-attempt-view]').forEach((button) => button.addEventListener('click', () => {
         activeAttemptId = button.dataset.attemptView || '';
+        render();
+      }));
+      target.querySelectorAll('[data-attempt-solution]').forEach((button) => button.addEventListener('click', () => {
+        activeSolutionAttemptId = button.dataset.attemptSolution || '';
         render();
       }));
     };
