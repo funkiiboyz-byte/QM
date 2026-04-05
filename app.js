@@ -1266,6 +1266,93 @@
     });
   }
 
+  function renderLivePrintPreview(exam) {
+    const panel = document.getElementById('livePrintPreviewPanel');
+    if (!panel) return;
+    if (!exam) {
+      panel.innerHTML = '<p class="muted-copy">Live print preview will appear after selecting an exam.</p>';
+      return;
+    }
+    const sets = buildExamSetVariants(exam);
+    if (!sets.length) {
+      panel.innerHTML = '<p class="muted-copy">No question mapped yet for this exam.</p>';
+      return;
+    }
+    if (!livePreviewSelectedSet || !sets.some((item) => item.setCode === livePreviewSelectedSet)) livePreviewSelectedSet = sets[0].setCode;
+    const activeSet = sets.find((item) => item.setCode === livePreviewSelectedSet) || sets[0];
+    const layoutKey = `${exam.id}::${activeSet.setCode}`;
+    const layout = livePreviewLayouts.get(layoutKey);
+    const renderedQuestions = layout?.questions?.length
+      ? layout.questions
+      : activeSet.setQuestions.map((question, qIndex) => ({
+        id: question.id || `${activeSet.setCode}-q-${qIndex}`,
+        question,
+        optionsOrder: (question.options || []).map((_, optionIndex) => optionIndex),
+      }));
+    const answerKey = renderedQuestions.map((entry) => {
+      if (entry.question.type !== 'mcq') return 'CQ';
+      const optionIndex = entry.optionsOrder[Number(entry.question.correct) || 0] ?? 0;
+      return String.fromCharCode(65 + optionIndex);
+    });
+    const paperQuestions = renderedQuestions.map((entry, index) => {
+      const question = entry.question;
+      const displaySubject = question.subject || exam.subject || '';
+      const options = entry.optionsOrder.map((sourceIndex, localIndex) => `<li draggable="true" data-option-drag="${index}::${sourceIndex}"><span class="option-label">${String.fromCharCode(65 + localIndex)}.</span> <span>${formatMathForDisplay((question.options || [])[sourceIndex] || '', { subject: displaySubject })}</span></li>`).join('');
+      if (question.type === 'cq') {
+        const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}</div>`).join('');
+        return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${subs || '<p class="muted-copy">No sub-question found.</p>'}</article>`;
+      }
+      return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><ul class="option-list option-list--grid live-preview-options">${options}</ul></article>`;
+    }).join('');
+    panel.innerHTML = `<h4>Live Print Preview</h4><div class="field-row"><label>Set Filter<select id="livePreviewSetFilter">${sets.map((item) => `<option value="${item.setCode}" ${item.setCode === activeSet.setCode ? 'selected' : ''}>${escapeHtml(item.setLabel)}</option>`).join('')}</select></label></div><p class="muted-copy">Print er moto exact question paper preview. Drag kore question/option position change korle answer key o update hobe.</p><section class="paper set-paper live-preview-paper"><div class="board-head board-head--${escapeAttr(activeSet.config.headerTheme || 'classic')}"><h1>${formatMathForDisplay(activeSet.config.headerTitle)}</h1><h2>${formatMathForDisplay(exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(activeSet.setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(activeSet.config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(activeSet.config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(activeSet.config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(activeSet.config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(exam.subject)} · ${escapeHtml(exam.examDate)} · ${escapeHtml(exam.examType)}</p><p class="instructions">${formatMathForDisplay(activeSet.config.instructions)}</p></div><div class="question-grid">${paperQuestions || '<p>No assigned question found.</p>'}</div></section><div class="table-wrap"><table class="result-table"><thead><tr><th>Q. No</th><th>Answer Key</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${item}</td></tr>`).join('')}</tbody></table></div>`;
+    panel.querySelector('#livePreviewSetFilter')?.addEventListener('change', (event) => {
+      livePreviewSelectedSet = event.target.value || '';
+      renderLivePrintPreview(exam);
+    });
+    bindLivePreviewDrag(panel, exam, activeSet, renderedQuestions);
+    queueTypeset();
+  }
+
+  function bindLivePreviewDrag(panel, exam, activeSet, renderedQuestions) {
+    const layoutKey = `${exam.id}::${activeSet.setCode}`;
+    let questionDragFrom = -1;
+    panel.querySelectorAll('[data-question-drag]').forEach((card) => {
+      card.addEventListener('dragstart', () => { questionDragFrom = Number(card.dataset.questionDrag); });
+      card.addEventListener('dragover', (event) => event.preventDefault());
+      card.addEventListener('drop', () => {
+        const to = Number(card.dataset.questionDrag);
+        if (Number.isNaN(questionDragFrom) || Number.isNaN(to) || questionDragFrom < 0 || to < 0 || questionDragFrom === to) return;
+        const next = [...renderedQuestions];
+        const [moved] = next.splice(questionDragFrom, 1);
+        next.splice(to, 0, moved);
+        livePreviewLayouts.set(layoutKey, { questions: next });
+        renderLivePrintPreview(exam);
+      });
+    });
+    let optionDragFrom = null;
+    panel.querySelectorAll('[data-option-drag]').forEach((item) => {
+      item.addEventListener('dragstart', () => {
+        const [qIndex, optionIndex] = String(item.dataset.optionDrag || '').split('::').map((value) => Number(value));
+        optionDragFrom = { qIndex, optionIndex };
+      });
+      item.addEventListener('dragover', (event) => event.preventDefault());
+      item.addEventListener('drop', () => {
+        const [toQIndex, toOptionIndex] = String(item.dataset.optionDrag || '').split('::').map((value) => Number(value));
+        if (!optionDragFrom || optionDragFrom.qIndex !== toQIndex || optionDragFrom.optionIndex === toOptionIndex) return;
+        const next = [...renderedQuestions];
+        const order = [...next[toQIndex].optionsOrder];
+        const fromPos = order.indexOf(optionDragFrom.optionIndex);
+        const toPos = order.indexOf(toOptionIndex);
+        if (fromPos < 0 || toPos < 0) return;
+        const [moved] = order.splice(fromPos, 1);
+        order.splice(toPos, 0, moved);
+        next[toQIndex] = { ...next[toQIndex], optionsOrder: order };
+        livePreviewLayouts.set(layoutKey, { questions: next });
+        renderLivePrintPreview(exam);
+      });
+    });
+  }
+
   function renderExamManager() {
     const target = document.getElementById('examManagerList');
     const filterForm = document.getElementById('questionFilterForm');
