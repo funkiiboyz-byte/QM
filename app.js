@@ -1429,7 +1429,7 @@
     const defaultKey = setVariants[0]?.answerKey || [];
     const detected = [];
     for (const file of imageFiles) {
-      const omr = await detectOmrFromImage(file, defaultKey.length);
+      const omr = await detectOmrFromImage(file, defaultKey.filter((key) => key !== 'CQ').length);
       const answerKey = deriveStaticAnswerKey(exam, omr.setCode);
       const student = students.get(omr.roll) || {};
       const result = evaluateDetectedAnswers(answerKey, omr.answers);
@@ -1697,10 +1697,12 @@
     let wrong = 0;
     let notAnswered = 0;
     let total = 0;
-    answerKey.forEach((key, idx) => {
+    let markIndex = 0;
+    answerKey.forEach((key) => {
       if (key === 'CQ') return;
       total += 1;
-      const marked = markedAnswers[idx] || '';
+      const marked = markedAnswers[markIndex] || '';
+      markIndex += 1;
       if (!marked) notAnswered += 1;
       else if (marked === key) correct += 1;
       else wrong += 1;
@@ -1710,11 +1712,13 @@
 
   function buildAnswerBreakdown(answerKey, markedAnswers) {
     const list = [];
-    answerKey.forEach((key, idx) => {
+    let mcqNo = 0;
+    answerKey.forEach((key) => {
       if (key === 'CQ') return;
-      const marked = markedAnswers[idx] || '';
+      mcqNo += 1;
+      const marked = markedAnswers[mcqNo - 1] || '';
       list.push({
-        qno: idx + 1,
+        qno: mcqNo,
         correct: key,
         marked: marked || '-',
         status: !marked ? 'Not Answered' : (marked === key ? 'Correct' : 'Wrong'),
@@ -1799,7 +1803,7 @@
         return;
       }
       const exam = findExam(examSelect.value);
-      const answerCount = exam ? deriveStaticAnswerKey(exam).length : 60;
+      const answerCount = exam ? deriveStaticAnswerKey(exam).filter((key) => key !== 'CQ').length : 60;
       omrDrafts = [];
       for (const file of files) {
         const detected = await detectOmrFromImage(file, answerCount);
@@ -1898,7 +1902,7 @@
     const rows = [];
     const getFileKey = (file) => `${file.name}__${file.size}__${file.lastModified}`;
     for (const file of imageFiles) {
-      const detected = await detectOmrFromImage(file, defaultKey.length);
+      const detected = await detectOmrFromImage(file, defaultKey.filter((key) => key !== 'CQ').length);
       const override = rollOverrides.get(getFileKey(file));
       const finalRoll = typeof override === 'string' ? override : (override?.roll || detected.roll || '');
       const finalSet = typeof override === 'object' ? (override?.setCode || detected.setCode || '') : (detected.setCode || '');
@@ -2026,10 +2030,12 @@
       setMarkup.push(`<section class="paper set-paper">${qrBlock}<div class="board-head board-head--${escapeAttr(headerTheme)}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(config.paperSubject || exam.subject)} · ${escapeHtml(config.paperDate || exam.examDate)} · ${escapeHtml(config.paperType || exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
 
       if (config.includeAnswerSheet && !disableAnswerSheet) {
-        const omrRows = answerKey.map((item, idx) => {
-          const mcq = item !== 'CQ';
-          const bubble = (label) => `<span class="omr-bubble ${mcq && item === label ? 'is-correct' : ''}">${label}</span>`;
-          return `<div class="omr-row"><span class="omr-qno">${idx + 1}</span><div class="omr-bubbles">${bubble('A')}${bubble('B')}${bubble('C')}${bubble('D')}</div></div>`;
+        let mcqNo = 0;
+        const omrRows = answerKey.map((item) => {
+          if (item === 'CQ') return '';
+          mcqNo += 1;
+          const bubble = (label) => `<span class="omr-bubble ${item === label ? 'is-correct' : ''}">${label}</span>`;
+          return `<div class="omr-row"><span class="omr-qno">${mcqNo}</span><div class="omr-bubbles">${bubble('A')}${bubble('B')}${bubble('C')}${bubble('D')}</div></div>`;
         }).join('');
         answerSheets.push(`<section class="paper answer-sheet"><h2>OMR Sheet - ${escapeHtml(setLabel)}</h2><p class="muted-copy">Fill bubbles according to question numbers.</p><div class="omr-grid">${omrRows}</div></section>`);
       }
@@ -2215,13 +2221,14 @@
     };
     for (const variant of variants) {
       const { answerKey } = variant;
+      const mcqAnswerKey = answerKey.filter((item) => item !== 'CQ');
       const setLabel = variant.setCode;
-      const densityClass = answerKey.length > 80 ? 'is-dense-3' : (answerKey.length > 50 ? 'is-dense-2' : (answerKey.length > 30 ? 'is-dense-1' : ''));
-      const colSize = Math.ceil(answerKey.length / 3);
+      const densityClass = mcqAnswerKey.length > 80 ? 'is-dense-3' : (mcqAnswerKey.length > 50 ? 'is-dense-2' : (mcqAnswerKey.length > 30 ? 'is-dense-1' : ''));
+      const colSize = Math.ceil(mcqAnswerKey.length / 3);
       const questionRows = `<div class="omr-columns">${Array.from({ length: 3 }, (_, col) => {
         const columnRows = Array.from({ length: colSize }, (_, row) => {
           const idx = col * colSize + row;
-          if (idx >= answerKey.length) return '';
+          if (idx >= mcqAnswerKey.length) return '';
           return `<div class="omr-q-row"><span class="qno">${idx + 1}.</span><div class="bubble-group"><span>A</span><span>B</span><span>C</span><span>D</span></div></div>`;
         }).join('');
         return `<div class="omr-col">${columnRows}</div>`;
