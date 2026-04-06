@@ -105,6 +105,7 @@
 </label>
 <label>Image<input id="mcqImage" type="file" accept="image/*" />
 </label>
+<button id="removeMcqImageBtn" type="button" class="toolbar-button">Remove Question Image</button>
 </div>
 <div class="section-builder">
 <div class="section-builder__head">
@@ -124,6 +125,7 @@
 </label>
 <label>Image<input id="cqImage" type="file" accept="image/*" />
 </label>
+<button id="removeCqImageBtn" type="button" class="toolbar-button">Remove CQ Image</button>
 <div class="section-builder">
 <div class="section-builder__head">
 <h4>Sub Questions</h4>
@@ -141,6 +143,10 @@
 <label>Paste JSON<textarea id="jsonImportText" rows="10" placeholder='{"questions":[...]}'>
 </textarea>
 </label>
+<div class="field-row">
+<label class="checkbox-row checkbox-card"><input id="jsonImportPartWise" type="checkbox" /><span>Import as Part/Section wise (shuffle only inside part)</span></label>
+<label>Default Part Name (optional)<input id="jsonImportDefaultPart" type="text" placeholder="e.g. Physics" /></label>
+</div>
 <div class="field-row">
 <label class="toolbar-button toolbar-button--file">Upload JSON<input id="jsonImportFile" type="file" accept="application/json" hidden />
 </label>
