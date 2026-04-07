@@ -1389,7 +1389,7 @@
       return;
     }
     renderLivePrintPreview(exam);
-    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
+    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-question-docs="${exam.id}">Question Paper Docs</button><button class="toolbar-button" data-sidebar-solution-docs="${exam.id}">Solution Paper Docs</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
     holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', () => {
       const item = findExam(exam.id);
       if (!item) return showToast('Exam not found.', 'error');
@@ -1421,6 +1421,8 @@
     });
     holder.querySelector('[data-sidebar-download]')?.addEventListener('click', () => downloadExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print]')?.addEventListener('click', () => printExamPaper(exam.id));
+    holder.querySelector('[data-sidebar-question-docs]')?.addEventListener('click', () => downloadExamPaperDocs(exam.id));
+    holder.querySelector('[data-sidebar-solution-docs]')?.addEventListener('click', () => downloadSolutionPaperDocs(exam.id));
     holder.querySelector('[data-sidebar-print-omr]')?.addEventListener('click', () => printOmrSheet(exam.id));
     holder.querySelector('[data-sidebar-solution-publish]')?.addEventListener('click', () => {
       const item = findExam(exam.id);
@@ -2231,6 +2233,32 @@
     showToast('Exam paper downloaded.');
   }
 
+  function downloadAsDocFile(filename, htmlContent) {
+    const blob = new Blob([htmlContent], { type: 'application/msword;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadExamPaperDocs(examId) {
+    const exam = findExam(examId);
+    if (!exam) return showToast('Exam not found.', 'error');
+    const filename = `${exam.title.replace(/\s+/g, '-').toLowerCase() || 'question-paper'}.doc`;
+    downloadAsDocFile(filename, buildExamPaperHtml(examId, { includeSolutionQr: false }));
+    showToast('Question paper docs exported.');
+  }
+
+  function downloadSolutionPaperDocs(examId) {
+    const exam = findExam(examId);
+    if (!exam) return showToast('Exam not found.', 'error');
+    const filename = `${exam.title.replace(/\s+/g, '-').toLowerCase() || 'solution-paper'}-solution.doc`;
+    downloadAsDocFile(filename, buildSolutionPaperHtml(examId));
+    showToast('Solution paper docs exported.');
+  }
+
   function printExamPaper(examId) {
     if (!findExam(examId)) return showToast('Exam not found.', 'error');
     const win = window.open('', '_blank', 'width=980,height=720');
@@ -2914,9 +2942,14 @@ console.log(latexToText(sampleLatex));
   function readFileAsDataUrl(file) { if (!file) return Promise.resolve(''); return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); }
   function queueTypeset() { if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise(); }
   function formatExplanationForDisplay(text, options = {}) {
-    return String(text || '')
+    const normalized = String(text || '')
+      .replace(/\\n/g, '\n')
+      .replace(/\s+(\d+[.)])\s+/g, '\n$1 ')
+      .replace(/\s+[•●]\s+/g, '\n• ');
+    return normalized
       .split(/\r?\n/)
       .map((line) => formatMathForDisplay(line, options))
+      .filter((line) => line.trim().length > 0)
       .join('<br />');
   }
   function formatMathForDisplay(text, options = {}) {
