@@ -1942,6 +1942,8 @@ canvas {
 .solution-legend {
   font-size: 12px;
   margin-top: 4px;
+  white-space: pre-line;
+  line-height: 1.5;
 }
 
 .print-option-image {
