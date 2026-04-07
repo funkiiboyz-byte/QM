@@ -1929,6 +1929,26 @@ canvas {
   column-gap: 14px;
 }
 
+.live-preview-paper .board-head {
+  position: relative;
+}
+
+.live-preview-paper .header-logo {
+  position: absolute;
+  top: 8px;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.live-preview-paper .header-logo--left {
+  left: 8px;
+}
+
+.live-preview-paper .header-logo--right {
+  right: 8px;
+}
+
 .solution-sheet-box .option-list li.is-marked {
   background: #fef3c7;
   border-radius: 6px;
