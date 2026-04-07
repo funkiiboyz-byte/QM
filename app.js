@@ -872,8 +872,13 @@
 
   function normalizeImportedQuestion(question, defaults, meta = {}) {
     if (!question || typeof question !== 'object') return null;
+    const level = String(question.level || defaults.level || '').trim();
+    const group = String(question.group || defaults.group || '').trim();
+    const subject = resolveCurriculumSubject(level, group, String(question.subject || defaults.subject || '').trim());
+    const rawTopic = String(question.topic || question.chapter || question.chapterName || question.chaptor || defaults.topic || '').trim();
+    const topic = resolveCurriculumTopic(level, group, subject, rawTopic);
     const type = String(question.type || (question.stimulus ? 'cq' : 'mcq')).toLowerCase();
-    const partLabel = String(question.part || question.section || (meta.partWise ? (meta.defaultPart || question.subject || defaults.subject || defaults.topic || '') : '')).trim();
+    const partLabel = String(question.part || question.section || (meta.partWise ? (meta.defaultPart || subject || topic || '') : '')).trim();
     if (type === 'cq') {
       const subQuestions = Array.isArray(question.subQuestions) ? question.subQuestions.filter((item) => item && (item.prompt || item.answer || item.label)) : [];
       const stimulus = String(question.stimulus || question.question || '').trim();
@@ -881,11 +886,11 @@
       return {
         id: uid('question'),
         type: 'cq',
-        level: question.level || defaults.level,
-        group: question.group || defaults.group,
-        subject: question.subject || defaults.subject,
-        topic: question.topic || defaults.topic,
-        section: partLabel || question.section || question.topic || defaults.topic,
+        level,
+        group,
+        subject,
+        topic,
+        section: partLabel || question.section || topic || defaults.topic,
         partTagged: !!meta.partWise,
         stimulus,
         subQuestions: subQuestions.map((item, index) => ({
@@ -912,11 +917,11 @@
     return {
       id: uid('question'),
       type: 'mcq',
-      level: question.level || defaults.level,
-      group: question.group || defaults.group,
-      subject: question.subject || defaults.subject,
-      topic: question.topic || defaults.topic,
-      section: partLabel || question.section || question.topic || defaults.topic,
+      level,
+      group,
+      subject,
+      topic,
+      section: partLabel || question.section || topic || defaults.topic,
       partTagged: !!meta.partWise,
       question: text,
       options: finalOptions,
@@ -927,6 +932,19 @@
       createdAt: new Date().toISOString(),
       importedAt: new Date().toISOString(),
     };
+  }
+
+  function resolveCurriculumSubject(level, group, subject) {
+    const subjects = Object.keys(CURRICULUM?.[level]?.[group] || {});
+    if (!subject || !subjects.length) return subject;
+    return subjects.find((item) => item.toLowerCase() === subject.toLowerCase()) || subject;
+  }
+
+  function resolveCurriculumTopic(level, group, subject, topic) {
+    const topics = CURRICULUM?.[level]?.[group]?.[subject] || [];
+    if (!topic || !topics.length) return topic;
+    const normalizedTopic = topic.toLowerCase().replace(/\s+/g, ' ').trim();
+    return topics.find((item) => item.toLowerCase().replace(/\s+/g, ' ').trim() === normalizedTopic) || topic;
   }
 
   function normalizeCorrectIndex(correct, answer, options) {
