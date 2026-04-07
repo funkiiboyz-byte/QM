@@ -1096,7 +1096,7 @@
           const isCorrect = optionIndex === question.correct;
           return `<li>${String.fromCharCode(65 + optionIndex)}. ${formatMathForDisplay(option, { subject: displaySubject })}${isCorrect ? ' <strong>(Correct)</strong>' : ''}</li>`;
         }).join('');
-        return `<div class="preview-sub"><strong>Q${index + 1}. ${formatMathForDisplay(question.question || '', { subject: displaySubject })}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="MCQ" />` : ''}<ol>${options || '<li>No options found.</li>'}</ol>${question.explanation ? `<p><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : ''}</div>`;
+        return `<div class="preview-sub"><strong>Q${index + 1}. ${formatMathForDisplay(question.question || '', { subject: displaySubject })}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="MCQ" />` : ''}<ol>${options || '<li>No options found.</li>'}</ol>${question.explanation ? `<p><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : ''}</div>`;
       }).join('');
       return `<div class="preview-block"><p>JSON Preview (${normalized.length} question${normalized.length > 1 ? 's' : ''})</p>${blocks}</div>`;
     } catch (error) {
@@ -1389,7 +1389,7 @@
       return;
     }
     renderLivePrintPreview(exam);
-    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
+    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-question-docs="${exam.id}">Question Paper Docs</button><button class="toolbar-button" data-sidebar-solution-docs="${exam.id}">Solution Paper Docs</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
     holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', () => {
       const item = findExam(exam.id);
       if (!item) return showToast('Exam not found.', 'error');
@@ -1421,6 +1421,8 @@
     });
     holder.querySelector('[data-sidebar-download]')?.addEventListener('click', () => downloadExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print]')?.addEventListener('click', () => printExamPaper(exam.id));
+    holder.querySelector('[data-sidebar-question-docs]')?.addEventListener('click', () => downloadExamPaperDocs(exam.id));
+    holder.querySelector('[data-sidebar-solution-docs]')?.addEventListener('click', () => downloadSolutionPaperDocs(exam.id));
     holder.querySelector('[data-sidebar-print-omr]')?.addEventListener('click', () => printOmrSheet(exam.id));
     holder.querySelector('[data-sidebar-solution-publish]')?.addEventListener('click', () => {
       const item = findExam(exam.id);
@@ -2058,7 +2060,7 @@
         const questionBody = question.type === 'cq'
           ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
           : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span>${(question.optionImages || [])[optionIndex] ? `<div><img class="print-option-image" src="${(question.optionImages || [])[optionIndex]}" alt="Option ${optionIndex + 1}" /></div>` : ''}</li>`).join('')}</ul>${showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '', { subject: displaySubject })}</p>` : ''}`;
-        const explanation = showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
+        const explanation = showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
         return `${sectionHeading}<article class="print-question"><h3>${number}. ${formatMathForDisplay(title, { subject: displaySubject })}</h3>${imageBlock}${questionBody}${explanation}</article>`;
       }).join('');
 
@@ -2229,6 +2231,32 @@
     link.click();
     URL.revokeObjectURL(url);
     showToast('Exam paper downloaded.');
+  }
+
+  function downloadAsDocFile(filename, htmlContent) {
+    const blob = new Blob([htmlContent], { type: 'application/msword;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadExamPaperDocs(examId) {
+    const exam = findExam(examId);
+    if (!exam) return showToast('Exam not found.', 'error');
+    const filename = `${exam.title.replace(/\s+/g, '-').toLowerCase() || 'question-paper'}.doc`;
+    downloadAsDocFile(filename, buildExamPaperHtml(examId, { includeSolutionQr: false }));
+    showToast('Question paper docs exported.');
+  }
+
+  function downloadSolutionPaperDocs(examId) {
+    const exam = findExam(examId);
+    if (!exam) return showToast('Exam not found.', 'error');
+    const filename = `${exam.title.replace(/\s+/g, '-').toLowerCase() || 'solution-paper'}-solution.doc`;
+    downloadAsDocFile(filename, buildSolutionPaperHtml(examId));
+    showToast('Solution paper docs exported.');
   }
 
   function printExamPaper(examId) {
@@ -2680,7 +2708,7 @@
       const displaySubject = question.subject || exam.subject || '';
       if (question.type !== 'mcq') {
         const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${item.answer ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer, { subject: displaySubject })}</div>` : ''}</div>`).join('');
-        const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
+        const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
         return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${subs || '<p class="muted-copy">CQ / written answer.</p>'}${explanation}</article>`;
       }
       const correct = targetSet.answerKey[index] || '-';
@@ -2691,7 +2719,7 @@
         const isCorrect = label === correct;
         return `<li class="${isMarked ? 'is-marked' : ''} ${isCorrect ? 'is-correct' : ''}"><span class="option-label">${label}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span></li>`;
       }).join('');
-      const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
+      const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
       return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><ul class="option-list option-list--grid">${options}</ul><p class="solution-legend"><strong>Marked:</strong> ${escapeHtml(marked)} · <strong>Correct:</strong> ${escapeHtml(correct)}</p>${explanation}</article>`;
     }).join('');
     return `<section class="paper live-preview-paper"><div class="board-head board-head--${escapeAttr(targetSet.config.headerTheme || 'classic')}"><h2>${formatMathForDisplay(exam.title)} · Solution Sheet</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(targetSet.setLabel)}</span><span><strong>Student Marked vs Correct</strong></span></div></div><div class="question-grid">${questionsMarkup || '<p>No question found.</p>'}</div></section>`;
@@ -2913,6 +2941,17 @@ console.log(latexToText(sampleLatex));
   function upsert(collection, item) { const index = collection.findIndex((entry) => entry.id === item.id); if (index === -1) collection.unshift(item); else collection[index] = { ...collection[index], ...item }; }
   function readFileAsDataUrl(file) { if (!file) return Promise.resolve(''); return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); }
   function queueTypeset() { if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise(); }
+  function formatExplanationForDisplay(text, options = {}) {
+    const normalized = String(text || '')
+      .replace(/\\n/g, '\n')
+      .replace(/\s+(\d+[.)])\s+/g, '\n$1 ')
+      .replace(/\s+[•●]\s+/g, '\n• ');
+    return normalized
+      .split(/\r?\n/)
+      .map((line) => formatMathForDisplay(line, options))
+      .filter((line) => line.trim().length > 0)
+      .join('<br />');
+  }
   function formatMathForDisplay(text, options = {}) {
     const subject = String(options.subject || '').toLowerCase();
     const isPhysics = subject.includes('physics') || subject.includes('পদার্থ');
