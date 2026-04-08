@@ -49,8 +49,8 @@ window.MEGAPREP_CURRICULUM = {
       'Chemistry 2nd Paper': ['Organic Chemistry', 'Electrochemistry', 'Acids-Bases', 'Metallurgy', 'Chemical Industry'],
       'Biology 1st Paper': ['Cell & Cell Division', 'Microbiology', 'Algae & Fungi', 'Plant Anatomy', 'Plant Physiology'],
       'Biology 2nd Paper': ['Genetics', 'Evolution', 'Human Physiology', 'Biotechnology', 'Ecology & Environment'],
-      'Higher Mathematics 1st Paper': ['Matrix', 'Complex Number', 'Straight Line', 'Conic Sections', 'Trigonometric Functions', 'Differentiation'],
-      'Higher Mathematics 2nd Paper': ['Integration', 'Differential Equation', 'Statics', 'Plane Motion', 'Probability', 'Vector'],
+      'Higher Mathematics 1st Paper': ['Matrix & Determinant', 'Complex Number', 'Straight Line', 'Circle', 'Conic Sections', 'Permutation & Combination', 'Trigonometric Ratio', 'Trigonometric Function & Identity'],
+      'Higher Mathematics 2nd Paper': ['Inverse Trigonometric Function', 'Limit & Continuity', 'Differentiation', 'Integration', 'Differential Equation', 'Binomial Expansion', 'Vector', 'Statics', 'Plane Motion', 'Probability'],
     },
     Humanities: {
       History: ['Historiography', 'Ancient Civilization', 'Medieval India', 'Colonial Bengal', 'Nationalism', 'Bangladesh Affairs'],
