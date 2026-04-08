@@ -1551,7 +1551,17 @@ body.theme-dark .summary-card {
 }
 
 .sub-question-row {
-  grid-template-columns: 120px 1fr 1fr auto;
+  grid-template-columns: 120px 1fr 1fr auto auto;
+}
+
+.assignment-item {
+  grid-template-columns: 1fr auto;
+}
+
+.assignment-item label {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
 }
 
 .field-row {
