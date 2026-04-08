@@ -26,6 +26,8 @@
         paperSubject: '',
         paperDate: '',
         paperType: '',
+        leftLogo: '',
+        rightLogo: '',
         headerTheme: 'classic',
         numberPrefix: '',
         columns: '1',
@@ -50,6 +52,7 @@
   let selectedQuestionExamId = '';
   let editingQuestionId = '';
   let selectedManageExamId = '';
+  let activeManageEditQuestionId = '';
   let livePreviewSelectedSet = '';
   const livePreviewLayouts = new Map();
   let cloudSaveTimer = null;
@@ -506,6 +509,17 @@
     resetOptions();
     resetSubQuestions();
     renderQuestions();
+    const query = new URLSearchParams(window.location.search);
+    const queryExamId = query.get('examId') || '';
+    const editQuestionId = query.get('editQuestionId') || '';
+    if (queryExamId) {
+      const targetSelect = document.getElementById('qbExamTarget');
+      if (targetSelect && [...targetSelect.options].some((option) => option.value === queryExamId)) {
+        targetSelect.value = queryExamId;
+        selectedQuestionExamId = queryExamId;
+      }
+    }
+    if (editQuestionId) editQuestion(editQuestionId);
     updateQuestionPreview();
   }
 
@@ -530,7 +544,7 @@
       questionType: document.getElementById('promptQuestionType').value,
       difficulty: document.getElementById('promptDifficulty').value,
     };
-    document.getElementById('jsonPromptText').value = `You are generating question JSON for direct import.\nReturn ONLY valid JSON (no markdown, no explanation, no code block).\nUse this exact schema:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "question": "Write one ${payload.difficulty} difficulty question",\n      "options": ["Option A", "Option B", "Option C", "Option D"],\n      "answer": "A",\n      "explanation": "Short explanation"\n    }\n  ]\n}\nIf questionType is CQ then return:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "stimulus": "Passage or stem",\n      "subQuestions": [\n        { "label": "A", "prompt": "Question part A", "answer": "Answer A" },\n        { "label": "B", "prompt": "Question part B", "answer": "Answer B" }\n      ]\n    }\n  ]\n}`;
+    document.getElementById('jsonPromptText').value = `You are generating question JSON for direct import.\nReturn ONLY valid JSON (no markdown, no explanation, no code block).\nFor MCQ explanation, write concise solution lines that can be rendered nicely in a solution sheet:\n- Use plain text only.\n- Use 3-6 short lines.\n- Put each line on a NEW line using \\n.\n- Do NOT use labels like "Step 1", "Step 2".\nUse this exact schema:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "question": "Write one ${payload.difficulty} difficulty question",\n      "options": ["Option A", "Option B", "Option C", "Option D"],\n      "answer": "A",\n      "explanation": "প্রথমে মূল ধারণা নির্ধারণ করি\\nতারপর প্রযোজ্য সূত্র বসাই\\nগণনা করে মান বের করি\\nশেষে চূড়ান্ত উত্তর লিখি"\n    }\n  ]\n}\nIf questionType is CQ then return:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "stimulus": "Passage or stem",\n      "subQuestions": [\n        { "label": "A", "prompt": "Question part A", "answer": "Answer A" },\n        { "label": "B", "prompt": "Question part B", "answer": "Answer B" }\n      ]\n    }\n  ]\n}`;
     showToast('Curriculum prompt generated.');
   }
 
@@ -870,8 +884,13 @@
 
   function normalizeImportedQuestion(question, defaults, meta = {}) {
     if (!question || typeof question !== 'object') return null;
+    const level = String(question.level || defaults.level || '').trim();
+    const group = String(question.group || defaults.group || '').trim();
+    const subject = resolveCurriculumSubject(level, group, String(question.subject || defaults.subject || '').trim());
+    const rawTopic = String(question.topic || question.chapter || question.chapterName || question.chaptor || defaults.topic || '').trim();
+    const topic = resolveCurriculumTopic(level, group, subject, rawTopic);
     const type = String(question.type || (question.stimulus ? 'cq' : 'mcq')).toLowerCase();
-    const partLabel = String(question.part || question.section || (meta.partWise ? (meta.defaultPart || question.subject || defaults.subject || defaults.topic || '') : '')).trim();
+    const partLabel = String(question.part || question.section || (meta.partWise ? (meta.defaultPart || subject || topic || '') : '')).trim();
     if (type === 'cq') {
       const subQuestions = Array.isArray(question.subQuestions) ? question.subQuestions.filter((item) => item && (item.prompt || item.answer || item.label)) : [];
       const stimulus = String(question.stimulus || question.question || '').trim();
@@ -879,11 +898,11 @@
       return {
         id: uid('question'),
         type: 'cq',
-        level: question.level || defaults.level,
-        group: question.group || defaults.group,
-        subject: question.subject || defaults.subject,
-        topic: question.topic || defaults.topic,
-        section: partLabel || question.section || question.topic || defaults.topic,
+        level,
+        group,
+        subject,
+        topic,
+        section: partLabel || question.section || topic || defaults.topic,
         partTagged: !!meta.partWise,
         stimulus,
         subQuestions: subQuestions.map((item, index) => ({
@@ -910,11 +929,11 @@
     return {
       id: uid('question'),
       type: 'mcq',
-      level: question.level || defaults.level,
-      group: question.group || defaults.group,
-      subject: question.subject || defaults.subject,
-      topic: question.topic || defaults.topic,
-      section: partLabel || question.section || question.topic || defaults.topic,
+      level,
+      group,
+      subject,
+      topic,
+      section: partLabel || question.section || topic || defaults.topic,
       partTagged: !!meta.partWise,
       question: text,
       options: finalOptions,
@@ -925,6 +944,19 @@
       createdAt: new Date().toISOString(),
       importedAt: new Date().toISOString(),
     };
+  }
+
+  function resolveCurriculumSubject(level, group, subject) {
+    const subjects = Object.keys(CURRICULUM?.[level]?.[group] || {});
+    if (!subject || !subjects.length) return subject;
+    return subjects.find((item) => item.toLowerCase() === subject.toLowerCase()) || subject;
+  }
+
+  function resolveCurriculumTopic(level, group, subject, topic) {
+    const topics = CURRICULUM?.[level]?.[group]?.[subject] || [];
+    if (!topic || !topics.length) return topic;
+    const normalizedTopic = topic.toLowerCase().replace(/\s+/g, ' ').trim();
+    return topics.find((item) => item.toLowerCase().replace(/\s+/g, ' ').trim() === normalizedTopic) || topic;
   }
 
   function normalizeCorrectIndex(correct, answer, options) {
@@ -967,14 +999,14 @@
   function resetOptions() { const list = document.getElementById('optionList'); if (!list) return; list.innerHTML = ''; for (let i = 0; i < 4; i += 1) list.appendChild(createOptionRow()); updateOptionIndexes(); }
   function fillOptions(options, correctIndex, optionImages = []) { const list = document.getElementById('optionList'); list.innerHTML = ''; options.forEach((text, index) => list.appendChild(createOptionRow({ text, correct: index === correctIndex, image: optionImages[index] || '' }))); updateOptionIndexes(); }
   function updateOptionIndexes() { document.querySelectorAll('.option-row').forEach((row, i) => row.querySelector('.option-row__index').textContent = String.fromCharCode(65 + i)); }
-  function createSubQuestionRow(item = {}) { const row = document.createElement('div'); row.className = 'sub-question-row'; row.innerHTML = `<input class="sub-question-row__label" type="text" placeholder="Label" value="${escapeAttr(item.label || '')}" /><textarea class="sub-question-row__prompt" rows="2" placeholder="Sub question">${escapeHtml(item.prompt || '')}</textarea><textarea class="sub-question-row__answer" rows="2" placeholder="Answer">${escapeHtml(item.answer || '')}</textarea><button type="button" class="icon-button">Remove</button>`; row.querySelector('.icon-button').addEventListener('click', () => { row.remove(); updateQuestionPreview(); }); row.querySelectorAll('input,textarea').forEach((el) => el.addEventListener('input', updateQuestionPreview)); return row; }
+  function createSubQuestionRow(item = {}) { const row = document.createElement('div'); row.className = 'sub-question-row'; row.innerHTML = `<input class="sub-question-row__label" type="text" placeholder="Label" value="${escapeAttr(item.label || '')}" /><textarea class="sub-question-row__prompt" rows="2" placeholder="Sub question">${escapeHtml(item.prompt || '')}</textarea><textarea class="sub-question-row__answer" rows="2" placeholder="Answer">${escapeHtml(item.answer || '')}</textarea><button type="button" class="toolbar-button sub-question-row__clear-label">Clear Label</button><button type="button" class="icon-button">Remove</button>`; row.querySelector('.icon-button').addEventListener('click', () => { row.remove(); updateQuestionPreview(); }); row.querySelector('.sub-question-row__clear-label')?.addEventListener('click', () => { const label = row.querySelector('.sub-question-row__label'); if (label) label.value = ''; updateQuestionPreview(); }); row.querySelectorAll('input,textarea').forEach((el) => el.addEventListener('input', updateQuestionPreview)); return row; }
   function resetSubQuestions() { const list = document.getElementById('subQuestionList'); if (!list) return; list.innerHTML = ''; ['A', 'B'].forEach((label) => list.appendChild(createSubQuestionRow({ label }))); }
 
   function updateQuestionPreview() {
     const preview = document.getElementById('questionPreview');
     if (!preview) return;
     if (questionMode === 'cq') {
-      const subs = [...document.querySelectorAll('.sub-question-row')].map((row) => `<div class="preview-sub"><strong>${escapeHtml(row.querySelector('.sub-question-row__label').value || 'A')}.</strong> ${formatMathForDisplay(row.querySelector('.sub-question-row__prompt').value || '')}</div>`).join('');
+      const subs = [...document.querySelectorAll('.sub-question-row')].map((row) => `<div class="preview-sub"><strong>${escapeHtml(row.querySelector('.sub-question-row__label').value || '')}${row.querySelector('.sub-question-row__label').value ? '.' : ''}</strong> ${formatMathForDisplay(row.querySelector('.sub-question-row__prompt').value || '')}</div>`).join('');
       preview.innerHTML = `<div class="preview-block"><h4>${formatMathForDisplay(document.getElementById('cqStimulus').value || 'Stimulus preview')}</h4>${cqImageData ? `<img class="preview-image" src="${cqImageData}" alt="Stimulus" />` : ''}${subs || '<p>Add sub questions to preview.</p>'}</div>`;
     } else if (questionMode === 'json') {
       const jsonPreview = buildJsonPreviewMarkup(document.getElementById('jsonImportText')?.value || '');
@@ -1096,7 +1128,7 @@
           const isCorrect = optionIndex === question.correct;
           return `<li>${String.fromCharCode(65 + optionIndex)}. ${formatMathForDisplay(option, { subject: displaySubject })}${isCorrect ? ' <strong>(Correct)</strong>' : ''}</li>`;
         }).join('');
-        return `<div class="preview-sub"><strong>Q${index + 1}. ${formatMathForDisplay(question.question || '', { subject: displaySubject })}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="MCQ" />` : ''}<ol>${options || '<li>No options found.</li>'}</ol>${question.explanation ? `<p><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : ''}</div>`;
+        return `<div class="preview-sub"><strong>Q${index + 1}. ${formatMathForDisplay(question.question || '', { subject: displaySubject })}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="MCQ" />` : ''}<ol>${options || '<li>No options found.</li>'}</ol>${question.explanation ? `<p><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : ''}</div>`;
       }).join('');
       return `<div class="preview-block"><p>JSON Preview (${normalized.length} question${normalized.length > 1 ? 's' : ''})</p>${blocks}</div>`;
     } catch (error) {
@@ -1210,6 +1242,42 @@
         renderLivePrintPreview(findExam(selectedManageExamId));
       });
     });
+    const leftLogoInput = document.getElementById('printLeftLogoFile');
+    const rightLogoInput = document.getElementById('printRightLogoFile');
+    const clearLeftLogoBtn = document.getElementById('clearLeftLogoBtn');
+    const clearRightLogoBtn = document.getElementById('clearRightLogoBtn');
+    if (leftLogoInput) {
+      leftLogoInput.addEventListener('change', async () => {
+        const file = leftLogoInput.files?.[0];
+        config.leftLogo = file ? await readFileAsDataUrl(file) : '';
+        saveState();
+        renderPrintPreviewMeta();
+        renderLivePrintPreview(findExam(selectedManageExamId));
+      });
+    }
+    if (rightLogoInput) {
+      rightLogoInput.addEventListener('change', async () => {
+        const file = rightLogoInput.files?.[0];
+        config.rightLogo = file ? await readFileAsDataUrl(file) : '';
+        saveState();
+        renderPrintPreviewMeta();
+        renderLivePrintPreview(findExam(selectedManageExamId));
+      });
+    }
+    clearLeftLogoBtn?.addEventListener('click', () => {
+      config.leftLogo = '';
+      if (leftLogoInput) leftLogoInput.value = '';
+      saveState();
+      renderPrintPreviewMeta();
+      renderLivePrintPreview(findExam(selectedManageExamId));
+    });
+    clearRightLogoBtn?.addEventListener('click', () => {
+      config.rightLogo = '';
+      if (rightLogoInput) rightLogoInput.value = '';
+      saveState();
+      renderPrintPreviewMeta();
+      renderLivePrintPreview(findExam(selectedManageExamId));
+    });
     renderPrintPreviewMeta();
   }
 
@@ -1217,7 +1285,7 @@
     const preview = document.getElementById('printPreviewMeta');
     if (!preview) return;
     const config = state.settings.printConfig;
-    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Paper: ${escapeHtml(config.paperTitle || '(Use exam title)')} · ${escapeHtml(config.paperSubject || '(Use exam subject)')}</p><p>Date/Type: ${escapeHtml(config.paperDate || '(Use exam date)')} · ${escapeHtml(config.paperType || '(Use exam type)')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Theme: ${escapeHtml(config.headerTheme || 'classic')}</p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)} · Compact: ${config.compactMode ? 'On' : 'Off'}</p></div>`;
+    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Paper: ${escapeHtml(config.paperTitle || '(Use exam title)')} · ${escapeHtml(config.paperSubject || '(Use exam subject)')}</p><p>Date/Type: ${escapeHtml(config.paperDate || '(Use exam date)')} · ${escapeHtml(config.paperType || '(Use exam type)')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Theme: ${escapeHtml(config.headerTheme || 'classic')} · Left Logo: ${config.leftLogo ? 'Yes' : 'No'} · Right Logo: ${config.rightLogo ? 'Yes' : 'No'}</p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)} · Compact: ${config.compactMode ? 'On' : 'Off'}</p></div>`;
   }
 
   function renderLivePrintPreview(exam) {
@@ -1263,7 +1331,8 @@
       }
       return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><h3>${serial}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${imageBlock}<ul class="option-list option-list--grid live-preview-options">${options}</ul></article>`;
     }).join('');
-    panel.innerHTML = `<h4>Live Print Preview</h4><div class="field-row"><label>Set Filter<select id="livePreviewSetFilter">${sets.map((item) => `<option value="${item.setCode}" ${item.setCode === activeSet.setCode ? 'selected' : ''}>${escapeHtml(item.setLabel)}</option>`).join('')}</select></label></div><p class="muted-copy">Print er moto exact question paper preview. Drag kore question/option position change korle answer key o update hobe.</p><section class="paper set-paper live-preview-paper"><div class="board-head board-head--${escapeAttr(activeSet.config.headerTheme || 'classic')}"><h1>${formatMathForDisplay(activeSet.config.headerTitle)}</h1><h2>${formatMathForDisplay(activeSet.config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(activeSet.setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(activeSet.config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(activeSet.config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(activeSet.config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(activeSet.config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(activeSet.config.paperSubject || exam.subject)} · ${escapeHtml(activeSet.config.paperDate || exam.examDate)} · ${escapeHtml(activeSet.config.paperType || exam.examType)}</p><p class="instructions">${formatMathForDisplay(activeSet.config.instructions)}</p></div><div class="question-grid">${paperQuestions || '<p>No assigned question found.</p>'}</div></section><div class="table-wrap"><table class="result-table"><thead><tr><th>MCQ No</th><th>Answer Key</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${item}</td></tr>`).join('')}</tbody></table></div>`;
+    const headerLogos = `${activeSet.config.leftLogo ? `<img class="header-logo header-logo--left" src="${activeSet.config.leftLogo}" alt="Left logo" />` : ''}${activeSet.config.rightLogo ? `<img class="header-logo header-logo--right" src="${activeSet.config.rightLogo}" alt="Right logo" />` : ''}`;
+    panel.innerHTML = `<h4>Live Print Preview</h4><div class="field-row"><label>Set Filter<select id="livePreviewSetFilter">${sets.map((item) => `<option value="${item.setCode}" ${item.setCode === activeSet.setCode ? 'selected' : ''}>${escapeHtml(item.setLabel)}</option>`).join('')}</select></label></div><p class="muted-copy">Print er moto exact question paper preview. Drag kore question/option position change korle answer key o update hobe.</p><section class="paper set-paper live-preview-paper"><div class="board-head board-head--${escapeAttr(activeSet.config.headerTheme || 'classic')}">${headerLogos}<h1>${formatMathForDisplay(activeSet.config.headerTitle)}</h1><h2>${formatMathForDisplay(activeSet.config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(activeSet.setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(activeSet.config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(activeSet.config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(activeSet.config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(activeSet.config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(activeSet.config.paperSubject || exam.subject)} · ${escapeHtml(activeSet.config.paperDate || exam.examDate)} · ${escapeHtml(activeSet.config.paperType || exam.examType)}</p><p class="instructions">${formatMathForDisplay(activeSet.config.instructions)}</p></div><div class="question-grid">${paperQuestions || '<p>No assigned question found.</p>'}</div></section><div class="table-wrap"><table class="result-table"><thead><tr><th>MCQ No</th><th>Answer Key</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${item}</td></tr>`).join('')}</tbody></table></div>`;
     panel.querySelector('#livePreviewSetFilter')?.addEventListener('change', (event) => {
       livePreviewSelectedSet = event.target.value || '';
       renderLivePrintPreview(exam);
@@ -1346,7 +1415,7 @@
         if (filters.topic && question.topic !== filters.topic) return false;
         return true;
       });
-      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<label class="assignment-item"><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label>`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
     }).join('');
     renderPrintFormatActions(scopedExams[0] || null);
     target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => {
@@ -1378,6 +1447,70 @@
       renderExamManager();
       showToast('Exam question mapping updated.');
     }));
+    target.querySelectorAll('[data-inline-edit]').forEach((button) => button.addEventListener('click', () => {
+      activeManageEditQuestionId = activeManageEditQuestionId === button.dataset.inlineEdit ? '' : button.dataset.inlineEdit;
+      renderExamManager();
+    }));
+    target.querySelectorAll('[data-inline-cancel]').forEach((button) => button.addEventListener('click', () => {
+      activeManageEditQuestionId = '';
+      renderExamManager();
+    }));
+    target.querySelectorAll('[data-inline-save]').forEach((button) => button.addEventListener('click', () => saveInlineManageQuestion(button.dataset.inlineSave)));
+  }
+
+  function buildInlineManageQuestionEditor(question) {
+    if (!question) return '';
+    if (question.type === 'cq') {
+      return `<div class="preview-surface preview-surface--small"><h4>Inline Edit · CQ</h4><label>Stimulus<textarea data-inline-stimulus="${question.id}" rows="4">${escapeHtml(question.stimulus || '')}</textarea></label><label>Section<input data-inline-section="${question.id}" type="text" value="${escapeAttr(question.section || '')}" /></label><label>Sub Questions JSON<textarea data-inline-subjson="${question.id}" rows="8">${escapeHtml(JSON.stringify(question.subQuestions || [], null, 2))}</textarea></label><p class="muted-copy">Use JSON array: [{"label":"A","prompt":"...","answer":"..."}]</p><div class="entity-actions"><button type="button" class="toolbar-button" data-inline-save="${question.id}">Save</button><button type="button" class="toolbar-button" data-inline-cancel="${question.id}">Cancel</button></div></div>`;
+    }
+    const correctLetter = String.fromCharCode(65 + (Number(question.correct) || 0));
+    return `<div class="preview-surface preview-surface--small"><h4>Inline Edit · MCQ</h4><label>Question<textarea data-inline-question="${question.id}" rows="4">${escapeHtml(question.question || '')}</textarea></label><label>Explanation<textarea data-inline-explanation="${question.id}" rows="4">${escapeHtml(question.explanation || '')}</textarea></label><label>Section<input data-inline-section="${question.id}" type="text" value="${escapeAttr(question.section || '')}" /></label><label>Options JSON<textarea data-inline-options="${question.id}" rows="6">${escapeHtml(JSON.stringify(question.options || [], null, 2))}</textarea></label><label>Correct Option (A/B/C/D)<input data-inline-correct="${question.id}" type="text" value="${escapeAttr(correctLetter)}" /></label><div class="entity-actions"><button type="button" class="toolbar-button" data-inline-save="${question.id}">Save</button><button type="button" class="toolbar-button" data-inline-cancel="${question.id}">Cancel</button></div></div>`;
+  }
+
+  function saveInlineManageQuestion(questionId) {
+    const question = state.questions.find((item) => item.id === questionId);
+    if (!question) return showToast('Question not found.', 'error');
+    try {
+      if (question.type === 'cq') {
+        const stimulus = document.querySelector(`[data-inline-stimulus="${questionId}"]`)?.value?.trim() || '';
+        const section = document.querySelector(`[data-inline-section="${questionId}"]`)?.value?.trim() || '';
+        const subJsonRaw = document.querySelector(`[data-inline-subjson="${questionId}"]`)?.value || '[]';
+        const parsedSubs = JSON.parse(subJsonRaw);
+        if (!Array.isArray(parsedSubs)) throw new Error('Sub question JSON must be an array.');
+        question.stimulus = stimulus;
+        question.section = section;
+        question.subQuestions = parsedSubs
+          .map((item, index) => ({
+            label: String(item?.label || '').trim(),
+            prompt: String(item?.prompt || '').trim(),
+            answer: String(item?.answer || '').trim(),
+            order: index,
+          }))
+          .filter((item) => item.prompt || item.answer || item.label);
+      } else {
+        const text = document.querySelector(`[data-inline-question="${questionId}"]`)?.value?.trim() || '';
+        const explanation = document.querySelector(`[data-inline-explanation="${questionId}"]`)?.value || '';
+        const section = document.querySelector(`[data-inline-section="${questionId}"]`)?.value?.trim() || '';
+        const optionsRaw = document.querySelector(`[data-inline-options="${questionId}"]`)?.value || '[]';
+        const correctRaw = document.querySelector(`[data-inline-correct="${questionId}"]`)?.value?.trim() || '';
+        const parsedOptions = JSON.parse(optionsRaw);
+        if (!Array.isArray(parsedOptions) || !parsedOptions.length) throw new Error('Options JSON must be a non-empty array.');
+        const options = parsedOptions.map((item) => String(item || '').trim()).filter(Boolean);
+        if (!text || !options.length) throw new Error('Question text and options are required.');
+        question.question = text;
+        question.explanation = explanation;
+        question.section = section;
+        question.options = options;
+        question.correct = normalizeCorrectIndex(null, correctRaw, options);
+      }
+      question.updatedAt = new Date().toISOString();
+      saveState();
+      activeManageEditQuestionId = '';
+      renderExamManager();
+      showToast('Question updated from Manage Exam.');
+    } catch (error) {
+      showToast(error?.message || 'Failed to save inline edit.', 'error');
+    }
   }
 
   function renderPrintFormatActions(exam) {
@@ -1389,7 +1522,7 @@
       return;
     }
     renderLivePrintPreview(exam);
-    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
+    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-question-docs="${exam.id}">Question Paper Docs</button><button class="toolbar-button" data-sidebar-solution-docs="${exam.id}">Solution Paper Docs</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
     holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', () => {
       const item = findExam(exam.id);
       if (!item) return showToast('Exam not found.', 'error');
@@ -1421,6 +1554,8 @@
     });
     holder.querySelector('[data-sidebar-download]')?.addEventListener('click', () => downloadExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print]')?.addEventListener('click', () => printExamPaper(exam.id));
+    holder.querySelector('[data-sidebar-question-docs]')?.addEventListener('click', () => downloadExamPaperDocs(exam.id));
+    holder.querySelector('[data-sidebar-solution-docs]')?.addEventListener('click', () => downloadSolutionPaperDocs(exam.id));
     holder.querySelector('[data-sidebar-print-omr]')?.addEventListener('click', () => printOmrSheet(exam.id));
     holder.querySelector('[data-sidebar-solution-publish]')?.addEventListener('click', () => {
       const item = findExam(exam.id);
@@ -2058,11 +2193,12 @@
         const questionBody = question.type === 'cq'
           ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
           : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span>${(question.optionImages || [])[optionIndex] ? `<div><img class="print-option-image" src="${(question.optionImages || [])[optionIndex]}" alt="Option ${optionIndex + 1}" /></div>` : ''}</li>`).join('')}</ul>${showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '', { subject: displaySubject })}</p>` : ''}`;
-        const explanation = showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
+        const explanation = showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
         return `${sectionHeading}<article class="print-question"><h3>${number}. ${formatMathForDisplay(title, { subject: displaySubject })}</h3>${imageBlock}${questionBody}${explanation}</article>`;
       }).join('');
 
-      setMarkup.push(`<section class="paper set-paper">${qrBlock}<div class="board-head board-head--${escapeAttr(headerTheme)}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(config.paperSubject || exam.subject)} · ${escapeHtml(config.paperDate || exam.examDate)} · ${escapeHtml(config.paperType || exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
+      const headerLogos = `${config.leftLogo ? `<img class="header-logo header-logo--left" src="${config.leftLogo}" alt="Left logo" />` : ''}${config.rightLogo ? `<img class="header-logo header-logo--right" src="${config.rightLogo}" alt="Right logo" />` : ''}`;
+      setMarkup.push(`<section class="paper set-paper">${qrBlock}<div class="board-head board-head--${escapeAttr(headerTheme)}">${headerLogos}<h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(config.paperSubject || exam.subject)} · ${escapeHtml(config.paperDate || exam.examDate)} · ${escapeHtml(config.paperType || exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
 
       if (config.includeAnswerSheet && !disableAnswerSheet) {
         let mcqNo = 0;
@@ -2076,7 +2212,7 @@
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.part-heading{break-inside:avoid;page-break-inside:avoid;font-weight:800;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:4px 8px;margin:0 0 6px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.print-question-image{display:block;max-width:100%;max-height:170px;object-fit:contain;border:1px solid #d8dee9;border-radius:8px;background:#fff;margin:6px 0}.print-option-image{display:block;max-width:100%;max-height:62px;object-fit:contain;border:1px solid #d8dee9;border-radius:6px;background:#fff;margin-top:4px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:10px;top:10px;z-index:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .question-grid{column-gap:10px}.compact-mode .part-heading{font-size:12px;padding:3px 7px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .print-question-image{max-height:120px;margin:4px 0}.compact-mode .print-option-image{max-height:46px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.header-logo{position:absolute;top:8px;width:56px;height:56px;object-fit:contain}.header-logo--left{left:8px}.header-logo--right{right:8px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.part-heading{break-inside:avoid;page-break-inside:avoid;font-weight:800;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:4px 8px;margin:0 0 6px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.print-question-image{display:block;max-width:100%;max-height:170px;object-fit:contain;border:1px solid #d8dee9;border-radius:8px;background:#fff;margin:6px 0}.print-option-image{display:block;max-width:100%;max-height:62px;object-fit:contain;border:1px solid #d8dee9;border-radius:6px;background:#fff;margin-top:4px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:10px;top:10px;z-index:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .header-logo{width:42px;height:42px;top:6px}.compact-mode .question-grid{column-gap:10px}.compact-mode .part-heading{font-size:12px;padding:3px 7px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .print-question-image{max-height:120px;margin:4px 0}.compact-mode .print-option-image{max-height:46px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
   }
 
   function getSolutionPublicUrl(examId) {
@@ -2229,6 +2365,32 @@
     link.click();
     URL.revokeObjectURL(url);
     showToast('Exam paper downloaded.');
+  }
+
+  function downloadAsDocFile(filename, htmlContent) {
+    const blob = new Blob([htmlContent], { type: 'application/msword;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadExamPaperDocs(examId) {
+    const exam = findExam(examId);
+    if (!exam) return showToast('Exam not found.', 'error');
+    const filename = `${exam.title.replace(/\s+/g, '-').toLowerCase() || 'question-paper'}.doc`;
+    downloadAsDocFile(filename, buildExamPaperHtml(examId, { includeSolutionQr: false }));
+    showToast('Question paper docs exported.');
+  }
+
+  function downloadSolutionPaperDocs(examId) {
+    const exam = findExam(examId);
+    if (!exam) return showToast('Exam not found.', 'error');
+    const filename = `${exam.title.replace(/\s+/g, '-').toLowerCase() || 'solution-paper'}-solution.doc`;
+    downloadAsDocFile(filename, buildSolutionPaperHtml(examId));
+    showToast('Solution paper docs exported.');
   }
 
   function printExamPaper(examId) {
@@ -2680,7 +2842,7 @@
       const displaySubject = question.subject || exam.subject || '';
       if (question.type !== 'mcq') {
         const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${item.answer ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer, { subject: displaySubject })}</div>` : ''}</div>`).join('');
-        const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
+        const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
         return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${subs || '<p class="muted-copy">CQ / written answer.</p>'}${explanation}</article>`;
       }
       const correct = targetSet.answerKey[index] || '-';
@@ -2691,7 +2853,7 @@
         const isCorrect = label === correct;
         return `<li class="${isMarked ? 'is-marked' : ''} ${isCorrect ? 'is-correct' : ''}"><span class="option-label">${label}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span></li>`;
       }).join('');
-      const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatMathForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
+      const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
       return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><ul class="option-list option-list--grid">${options}</ul><p class="solution-legend"><strong>Marked:</strong> ${escapeHtml(marked)} · <strong>Correct:</strong> ${escapeHtml(correct)}</p>${explanation}</article>`;
     }).join('');
     return `<section class="paper live-preview-paper"><div class="board-head board-head--${escapeAttr(targetSet.config.headerTheme || 'classic')}"><h2>${formatMathForDisplay(exam.title)} · Solution Sheet</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(targetSet.setLabel)}</span><span><strong>Student Marked vs Correct</strong></span></div></div><div class="question-grid">${questionsMarkup || '<p>No question found.</p>'}</div></section>`;
@@ -2913,6 +3075,17 @@ console.log(latexToText(sampleLatex));
   function upsert(collection, item) { const index = collection.findIndex((entry) => entry.id === item.id); if (index === -1) collection.unshift(item); else collection[index] = { ...collection[index], ...item }; }
   function readFileAsDataUrl(file) { if (!file) return Promise.resolve(''); return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); }
   function queueTypeset() { if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise(); }
+  function formatExplanationForDisplay(text, options = {}) {
+    const normalized = String(text || '')
+      .replace(/\\n/g, '\n')
+      .replace(/\s+(\d+[.)])\s+/g, '\n$1 ')
+      .replace(/\s+[•●]\s+/g, '\n• ');
+    return normalized
+      .split(/\r?\n/)
+      .map((line) => formatMathForDisplay(line, options))
+      .filter((line) => line.trim().length > 0)
+      .join('<br />');
+  }
   function formatMathForDisplay(text, options = {}) {
     const subject = String(options.subject || '').toLowerCase();
     const isPhysics = subject.includes('physics') || subject.includes('পদার্থ');
@@ -2920,14 +3093,16 @@ console.log(latexToText(sampleLatex));
       .replace(/\|/g, '')
       .replace(/\*/g, isPhysics ? ' * ' : ' × ')
       .replace(/\s*=\s*/g, ' = ')
+      .replace(/([0-9০-৯]+)\s*\^(?=\s*$)/g, '$1°')
+      .replace(/\b(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?|10)\b/g, '$1 × $2')
       .replace(/\s+/g, ' ')
-      .replace(isPhysics ? /$^/g : /\b([a-zA-Z])(\d+)\b/g, '$1^$2')
+      .replace(isPhysics ? /([NnJjMmKkGgSsTtLl])(\d+)(?=[A-Za-z\]\s]|$)/g : /\b([a-zA-Z])(\d+)\b/g, '$1^$2')
       .trim();
     const withSuperSub = normalized
       .replace(/sqrt\(([^)]+)\)/g, '√$1')
       .replace(/([A-Za-z0-9)\]])\s*\^\s*\(([^)]+)\)/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*\(([^)]+)\)/g, '$1<sub>$2</sub>')
-      .replace(/([A-Za-z0-9)\]])\s*\^\s*([A-Za-z0-9.]+)/g, '$1<sup>$2</sup>')
+      .replace(isPhysics ? /([A-Za-z0-9)\]])\s*\^\s*([+\-−]?\d+(?:\.\d+)?)/g : /([A-Za-z0-9)\]])\s*\^\s*([+\-−]?[A-Za-z0-9.]+)/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*([A-Za-z0-9.]+)/g, '$1<sub>$2</sub>');
     if (isPhysics) return withSuperSub;
     return withSuperSub.replace(/(?<![\w>])([A-Za-z0-9.+\-]+)\s*\/\s*([A-Za-z0-9.+\-]+)(?![\w<])/g, '<span class="math-frac"><span class="math-frac__num">$1</span><span class="math-frac__den">$2</span></span>');
