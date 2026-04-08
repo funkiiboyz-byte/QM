@@ -3017,6 +3017,7 @@ console.log(latexToText(sampleLatex));
       .replace(/\|/g, '')
       .replace(/\*/g, isPhysics ? ' * ' : ' × ')
       .replace(/\s*=\s*/g, ' = ')
+      .replace(/([0-9০-৯]+)\s*\^(?!\s*[\(\{A-Za-z0-9০-৯])/g, '$1°')
       .replace(/\s+/g, ' ')
       .replace(isPhysics ? /$^/g : /\b([a-zA-Z])(\d+)\b/g, '$1^$2')
       .trim();
