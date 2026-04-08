@@ -3026,7 +3026,7 @@ console.log(latexToText(sampleLatex));
       .replace(/sqrt\(([^)]+)\)/g, '√$1')
       .replace(/([A-Za-z0-9)\]])\s*\^\s*\(([^)]+)\)/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*\(([^)]+)\)/g, '$1<sub>$2</sub>')
-      .replace(/([A-Za-z0-9)\]])\s*\^\s*([+\-−]?[A-Za-z0-9.]+)/g, '$1<sup>$2</sup>')
+      .replace(isPhysics ? /([A-Za-z0-9)\]])\s*\^\s*([+\-−]?\d+(?:\.\d+)?)/g : /([A-Za-z0-9)\]])\s*\^\s*([+\-−]?[A-Za-z0-9.]+)/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*([A-Za-z0-9.]+)/g, '$1<sub>$2</sub>');
     if (isPhysics) return withSuperSub;
     return withSuperSub.replace(/(?<![\w>])([A-Za-z0-9.+\-]+)\s*\/\s*([A-Za-z0-9.+\-]+)(?![\w<])/g, '<span class="math-frac"><span class="math-frac__num">$1</span><span class="math-frac__den">$2</span></span>');
