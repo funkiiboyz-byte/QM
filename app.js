@@ -1456,15 +1456,25 @@
       renderExamManager();
     }));
     target.querySelectorAll('[data-inline-save]').forEach((button) => button.addEventListener('click', () => saveInlineManageQuestion(button.dataset.inlineSave)));
+    target.querySelectorAll('[data-inline-remove-sub]').forEach((button) => button.addEventListener('click', () => {
+      button.closest('.inline-sub-row')?.remove();
+    }));
+    target.querySelectorAll('[data-inline-clear-sub-label]').forEach((button) => button.addEventListener('click', () => {
+      const input = button.closest('.inline-sub-row')?.querySelector('[data-inline-sub-label]');
+      if (input) input.value = '';
+    }));
   }
 
   function buildInlineManageQuestionEditor(question) {
     if (!question) return '';
     if (question.type === 'cq') {
-      return `<div class="preview-surface preview-surface--small"><h4>Inline Edit · CQ</h4><label>Stimulus<textarea data-inline-stimulus="${question.id}" rows="4">${escapeHtml(question.stimulus || '')}</textarea></label><label>Section<input data-inline-section="${question.id}" type="text" value="${escapeAttr(question.section || '')}" /></label><label>Sub Questions JSON<textarea data-inline-subjson="${question.id}" rows="8">${escapeHtml(JSON.stringify(question.subQuestions || [], null, 2))}</textarea></label><p class="muted-copy">Use JSON array: [{"label":"A","prompt":"...","answer":"..."}]</p><div class="entity-actions"><button type="button" class="toolbar-button" data-inline-save="${question.id}">Save</button><button type="button" class="toolbar-button" data-inline-cancel="${question.id}">Cancel</button></div></div>`;
+      const subs = (question.subQuestions?.length ? question.subQuestions : [{ label: 'A', prompt: '', answer: '' }])
+        .map((item, index) => `<div class="inline-sub-row"><label>Label<input data-inline-sub-label type="text" value="${escapeAttr(item.label || '')}" /></label><label>Prompt<textarea data-inline-sub-prompt rows="2">${escapeHtml(item.prompt || '')}</textarea></label><label>Answer<textarea data-inline-sub-answer rows="2">${escapeHtml(item.answer || '')}</textarea></label><button type="button" class="toolbar-button" data-inline-clear-sub-label="1">Clear Label</button><button type="button" class="toolbar-button" data-inline-remove-sub="1">Remove</button></div>`).join('');
+      return `<div class="preview-surface preview-surface--small"><h4>Inline Edit · CQ</h4><label>Stimulus<textarea data-inline-stimulus="${question.id}" rows="4">${escapeHtml(question.stimulus || '')}</textarea></label><label>Section<input data-inline-section="${question.id}" type="text" value="${escapeAttr(question.section || '')}" /></label><div class="assignment-list">${subs}</div><div class="entity-actions"><button type="button" class="toolbar-button" data-inline-save="${question.id}">Save</button><button type="button" class="toolbar-button" data-inline-cancel="${question.id}">Cancel</button></div></div>`;
     }
     const correctLetter = String.fromCharCode(65 + (Number(question.correct) || 0));
-    return `<div class="preview-surface preview-surface--small"><h4>Inline Edit · MCQ</h4><label>Question<textarea data-inline-question="${question.id}" rows="4">${escapeHtml(question.question || '')}</textarea></label><label>Explanation<textarea data-inline-explanation="${question.id}" rows="4">${escapeHtml(question.explanation || '')}</textarea></label><label>Section<input data-inline-section="${question.id}" type="text" value="${escapeAttr(question.section || '')}" /></label><label>Options JSON<textarea data-inline-options="${question.id}" rows="6">${escapeHtml(JSON.stringify(question.options || [], null, 2))}</textarea></label><label>Correct Option (A/B/C/D)<input data-inline-correct="${question.id}" type="text" value="${escapeAttr(correctLetter)}" /></label><div class="entity-actions"><button type="button" class="toolbar-button" data-inline-save="${question.id}">Save</button><button type="button" class="toolbar-button" data-inline-cancel="${question.id}">Cancel</button></div></div>`;
+    const options = (question.options || []).map((option, index) => `<label>Option ${String.fromCharCode(65 + index)}<input data-inline-option="${question.id}" type="text" value="${escapeAttr(option || '')}" /></label>`).join('');
+    return `<div class="preview-surface preview-surface--small"><h4>Inline Edit · MCQ</h4><label>Question<textarea data-inline-question="${question.id}" rows="4">${escapeHtml(question.question || '')}</textarea></label><label>Explanation<textarea data-inline-explanation="${question.id}" rows="4">${escapeHtml(question.explanation || '')}</textarea></label><label>Section<input data-inline-section="${question.id}" type="text" value="${escapeAttr(question.section || '')}" /></label><div class="field-row">${options}</div><label>Correct Option (A/B/C/D)<input data-inline-correct="${question.id}" type="text" value="${escapeAttr(correctLetter)}" /></label><div class="entity-actions"><button type="button" class="toolbar-button" data-inline-save="${question.id}">Save</button><button type="button" class="toolbar-button" data-inline-cancel="${question.id}">Cancel</button></div></div>`;
   }
 
   function saveInlineManageQuestion(questionId) {
@@ -1474,9 +1484,11 @@
       if (question.type === 'cq') {
         const stimulus = document.querySelector(`[data-inline-stimulus="${questionId}"]`)?.value?.trim() || '';
         const section = document.querySelector(`[data-inline-section="${questionId}"]`)?.value?.trim() || '';
-        const subJsonRaw = document.querySelector(`[data-inline-subjson="${questionId}"]`)?.value || '[]';
-        const parsedSubs = JSON.parse(subJsonRaw);
-        if (!Array.isArray(parsedSubs)) throw new Error('Sub question JSON must be an array.');
+        const parsedSubs = [...document.querySelectorAll('.inline-sub-row')].map((row) => ({
+          label: row.querySelector('[data-inline-sub-label]')?.value?.trim() || '',
+          prompt: row.querySelector('[data-inline-sub-prompt]')?.value?.trim() || '',
+          answer: row.querySelector('[data-inline-sub-answer]')?.value?.trim() || '',
+        }));
         question.stimulus = stimulus;
         question.section = section;
         question.subQuestions = parsedSubs
@@ -1491,11 +1503,8 @@
         const text = document.querySelector(`[data-inline-question="${questionId}"]`)?.value?.trim() || '';
         const explanation = document.querySelector(`[data-inline-explanation="${questionId}"]`)?.value || '';
         const section = document.querySelector(`[data-inline-section="${questionId}"]`)?.value?.trim() || '';
-        const optionsRaw = document.querySelector(`[data-inline-options="${questionId}"]`)?.value || '[]';
         const correctRaw = document.querySelector(`[data-inline-correct="${questionId}"]`)?.value?.trim() || '';
-        const parsedOptions = JSON.parse(optionsRaw);
-        if (!Array.isArray(parsedOptions) || !parsedOptions.length) throw new Error('Options JSON must be a non-empty array.');
-        const options = parsedOptions.map((item) => String(item || '').trim()).filter(Boolean);
+        const options = [...document.querySelectorAll(`[data-inline-option="${questionId}"]`)].map((input) => String(input.value || '').trim()).filter(Boolean);
         if (!text || !options.length) throw new Error('Question text and options are required.');
         question.question = text;
         question.explanation = explanation;
