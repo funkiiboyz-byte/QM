@@ -52,6 +52,7 @@
   let selectedQuestionExamId = '';
   let editingQuestionId = '';
   let selectedManageExamId = '';
+  let activeManageEditQuestionId = '';
   let livePreviewSelectedSet = '';
   const livePreviewLayouts = new Map();
   let cloudSaveTimer = null;
@@ -1414,7 +1415,7 @@
         if (filters.topic && question.topic !== filters.topic) return false;
         return true;
       });
-      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><a class="toolbar-button" href="question-bank.html?examId=${encodeURIComponent(exam.id)}&editQuestionId=${encodeURIComponent(question.id)}">Edit</a></div>`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
     }).join('');
     renderPrintFormatActions(scopedExams[0] || null);
     target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => {
@@ -1446,6 +1447,70 @@
       renderExamManager();
       showToast('Exam question mapping updated.');
     }));
+    target.querySelectorAll('[data-inline-edit]').forEach((button) => button.addEventListener('click', () => {
+      activeManageEditQuestionId = activeManageEditQuestionId === button.dataset.inlineEdit ? '' : button.dataset.inlineEdit;
+      renderExamManager();
+    }));
+    target.querySelectorAll('[data-inline-cancel]').forEach((button) => button.addEventListener('click', () => {
+      activeManageEditQuestionId = '';
+      renderExamManager();
+    }));
+    target.querySelectorAll('[data-inline-save]').forEach((button) => button.addEventListener('click', () => saveInlineManageQuestion(button.dataset.inlineSave)));
+  }
+
+  function buildInlineManageQuestionEditor(question) {
+    if (!question) return '';
+    if (question.type === 'cq') {
+      return `<div class="preview-surface preview-surface--small"><h4>Inline Edit · CQ</h4><label>Stimulus<textarea data-inline-stimulus="${question.id}" rows="4">${escapeHtml(question.stimulus || '')}</textarea></label><label>Section<input data-inline-section="${question.id}" type="text" value="${escapeAttr(question.section || '')}" /></label><label>Sub Questions JSON<textarea data-inline-subjson="${question.id}" rows="8">${escapeHtml(JSON.stringify(question.subQuestions || [], null, 2))}</textarea></label><p class="muted-copy">Use JSON array: [{"label":"A","prompt":"...","answer":"..."}]</p><div class="entity-actions"><button type="button" class="toolbar-button" data-inline-save="${question.id}">Save</button><button type="button" class="toolbar-button" data-inline-cancel="${question.id}">Cancel</button></div></div>`;
+    }
+    const correctLetter = String.fromCharCode(65 + (Number(question.correct) || 0));
+    return `<div class="preview-surface preview-surface--small"><h4>Inline Edit · MCQ</h4><label>Question<textarea data-inline-question="${question.id}" rows="4">${escapeHtml(question.question || '')}</textarea></label><label>Explanation<textarea data-inline-explanation="${question.id}" rows="4">${escapeHtml(question.explanation || '')}</textarea></label><label>Section<input data-inline-section="${question.id}" type="text" value="${escapeAttr(question.section || '')}" /></label><label>Options JSON<textarea data-inline-options="${question.id}" rows="6">${escapeHtml(JSON.stringify(question.options || [], null, 2))}</textarea></label><label>Correct Option (A/B/C/D)<input data-inline-correct="${question.id}" type="text" value="${escapeAttr(correctLetter)}" /></label><div class="entity-actions"><button type="button" class="toolbar-button" data-inline-save="${question.id}">Save</button><button type="button" class="toolbar-button" data-inline-cancel="${question.id}">Cancel</button></div></div>`;
+  }
+
+  function saveInlineManageQuestion(questionId) {
+    const question = state.questions.find((item) => item.id === questionId);
+    if (!question) return showToast('Question not found.', 'error');
+    try {
+      if (question.type === 'cq') {
+        const stimulus = document.querySelector(`[data-inline-stimulus="${questionId}"]`)?.value?.trim() || '';
+        const section = document.querySelector(`[data-inline-section="${questionId}"]`)?.value?.trim() || '';
+        const subJsonRaw = document.querySelector(`[data-inline-subjson="${questionId}"]`)?.value || '[]';
+        const parsedSubs = JSON.parse(subJsonRaw);
+        if (!Array.isArray(parsedSubs)) throw new Error('Sub question JSON must be an array.');
+        question.stimulus = stimulus;
+        question.section = section;
+        question.subQuestions = parsedSubs
+          .map((item, index) => ({
+            label: String(item?.label || '').trim(),
+            prompt: String(item?.prompt || '').trim(),
+            answer: String(item?.answer || '').trim(),
+            order: index,
+          }))
+          .filter((item) => item.prompt || item.answer || item.label);
+      } else {
+        const text = document.querySelector(`[data-inline-question="${questionId}"]`)?.value?.trim() || '';
+        const explanation = document.querySelector(`[data-inline-explanation="${questionId}"]`)?.value || '';
+        const section = document.querySelector(`[data-inline-section="${questionId}"]`)?.value?.trim() || '';
+        const optionsRaw = document.querySelector(`[data-inline-options="${questionId}"]`)?.value || '[]';
+        const correctRaw = document.querySelector(`[data-inline-correct="${questionId}"]`)?.value?.trim() || '';
+        const parsedOptions = JSON.parse(optionsRaw);
+        if (!Array.isArray(parsedOptions) || !parsedOptions.length) throw new Error('Options JSON must be a non-empty array.');
+        const options = parsedOptions.map((item) => String(item || '').trim()).filter(Boolean);
+        if (!text || !options.length) throw new Error('Question text and options are required.');
+        question.question = text;
+        question.explanation = explanation;
+        question.section = section;
+        question.options = options;
+        question.correct = normalizeCorrectIndex(null, correctRaw, options);
+      }
+      question.updatedAt = new Date().toISOString();
+      saveState();
+      activeManageEditQuestionId = '';
+      renderExamManager();
+      showToast('Question updated from Manage Exam.');
+    } catch (error) {
+      showToast(error?.message || 'Failed to save inline edit.', 'error');
+    }
   }
 
   function renderPrintFormatActions(exam) {
