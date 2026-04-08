@@ -3017,15 +3017,16 @@ console.log(latexToText(sampleLatex));
       .replace(/\|/g, '')
       .replace(/\*/g, isPhysics ? ' * ' : ' × ')
       .replace(/\s*=\s*/g, ' = ')
-      .replace(/([0-9০-৯]+)\s*\^(?!\s*[\(\{A-Za-z0-9০-৯])/g, '$1°')
+      .replace(/([0-9০-৯]+)\s*\^(?=\s*(?:$|[,.;:!?)\]}]))/g, '$1°')
+      .replace(/\b(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?|10)\b/g, '$1 × $2')
       .replace(/\s+/g, ' ')
-      .replace(isPhysics ? /$^/g : /\b([a-zA-Z])(\d+)\b/g, '$1^$2')
+      .replace(isPhysics ? /\b([NnJjMmKkGgSsTtLl])(\d+)\b/g : /\b([a-zA-Z])(\d+)\b/g, '$1^$2')
       .trim();
     const withSuperSub = normalized
       .replace(/sqrt\(([^)]+)\)/g, '√$1')
       .replace(/([A-Za-z0-9)\]])\s*\^\s*\(([^)]+)\)/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*\(([^)]+)\)/g, '$1<sub>$2</sub>')
-      .replace(/([A-Za-z0-9)\]])\s*\^\s*([A-Za-z0-9.]+)/g, '$1<sup>$2</sup>')
+      .replace(/([A-Za-z0-9)\]])\s*\^\s*([+\-]?[A-Za-z0-9.]+)/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*([A-Za-z0-9.]+)/g, '$1<sub>$2</sub>');
     if (isPhysics) return withSuperSub;
     return withSuperSub.replace(/(?<![\w>])([A-Za-z0-9.+\-]+)\s*\/\s*([A-Za-z0-9.+\-]+)(?![\w<])/g, '<span class="math-frac"><span class="math-frac__num">$1</span><span class="math-frac__den">$2</span></span>');
