@@ -303,8 +303,6 @@ def process_omr(image_bytes: bytes, config: OMRConfig, answer_key: dict[str, str
             if is_marked:
                 # draw detection marker outside the inner text/label region to avoid overlap
                 cv2.circle(overlay, (cx, cy), base_radius + 3, color, 2)
-            else:
-                cv2.circle(overlay, (cx, cy), base_radius, (185, 185, 185), 1)
 
     confidence = 0.0
     if confidence_chunks:
