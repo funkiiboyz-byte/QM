@@ -297,20 +297,14 @@ def process_omr(image_bytes: bytes, config: OMRConfig, answer_key: dict[str, str
 
         for idx, item in enumerate(row):
             x, y, w, h = item["bbox"]
+            cx, cy = int(x + (w / 2)), int(y + (h / 2))
+            base_radius = int(max(6, min(w, h) * 0.58))
             is_marked = idx in selected_indices
-            draw_color = color if is_marked else (180, 180, 180)
-            cv2.rectangle(overlay, (x, y), (x + w, y + h), draw_color, 2)
-
-        cv2.putText(
-            overlay,
-            f"Q{q_idx}: {answers[str(q_idx)]}",
-            (max(10, row[0]["bbox"][0] - 80), row[0]["bbox"][1] + 12),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.45,
-            color,
-            1,
-            cv2.LINE_AA,
-        )
+            if is_marked:
+                # draw detection marker outside the inner text/label region to avoid overlap
+                cv2.circle(overlay, (cx, cy), base_radius + 3, color, 2)
+            else:
+                cv2.circle(overlay, (cx, cy), base_radius, (185, 185, 185), 1)
 
     confidence = 0.0
     if confidence_chunks:
