@@ -462,6 +462,7 @@
 
   function initQuestionBankPage() {
     bindCurriculumSelectors({ level: 'qbLevel', group: 'qbGroup', subject: 'qbSubject', topic: 'qbTopic' });
+    bindCurriculumFilterSelectors({ level: 'qFilterLevel', group: 'qFilterGroup', subject: 'qFilterSubject', topic: 'qFilterTopic' });
     bindQuestionExamTarget();
     document.getElementById('questionModeTabs').addEventListener('click', switchQuestionMode);
     document.getElementById('addOptionBtn').addEventListener('click', () => { document.getElementById('optionList').appendChild(createOptionRow()); updateOptionIndexes(); updateQuestionPreview(); });
@@ -508,6 +509,15 @@
     }
     resetOptions();
     resetSubQuestions();
+    ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterType'].forEach((id) => document.getElementById(id)?.addEventListener('change', renderQuestions));
+    document.getElementById('qFilterSearch')?.addEventListener('input', renderQuestions);
+    document.getElementById('qFilterResetBtn')?.addEventListener('click', () => {
+      ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterType', 'qFilterSearch'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      renderQuestions();
+    });
     renderQuestions();
     const query = new URLSearchParams(window.location.search);
     const queryExamId = query.get('examId') || '';
@@ -1027,12 +1037,45 @@
     const target = document.getElementById('questionList');
     if (!target) return;
     if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
+    const filters = {
+      level: document.getElementById('qFilterLevel')?.value || '',
+      group: document.getElementById('qFilterGroup')?.value || '',
+      subject: document.getElementById('qFilterSubject')?.value || '',
+      topic: document.getElementById('qFilterTopic')?.value || '',
+      type: (document.getElementById('qFilterType')?.value || '').toLowerCase(),
+      query: (document.getElementById('qFilterSearch')?.value || '').trim().toLowerCase(),
+    };
     const ordered = [...state.questions].sort((a, b) => {
       const importedDiff = new Date(b.importedAt || 0).getTime() - new Date(a.importedAt || 0).getTime();
       if (importedDiff !== 0) return importedDiff;
       return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     });
-    target.innerHTML = ordered.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${formatMathForDisplay(question.question || question.stimulus || 'Question')}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
+    const filtered = ordered.filter((question) => {
+      if (filters.level && question.level !== filters.level) return false;
+      if (filters.group && question.group !== filters.group) return false;
+      if (filters.subject && question.subject !== filters.subject) return false;
+      if (filters.topic && question.topic !== filters.topic) return false;
+      if (filters.type && String(question.type || 'mcq').toLowerCase() !== filters.type) return false;
+      if (!filters.query) return true;
+      const queryBag = [
+        question.question, question.stimulus, question.explanation, question.level, question.group, question.subject, question.topic, question.section,
+        ...(question.options || []),
+        ...(question.subQuestions || []).flatMap((item) => [item?.label, item?.prompt, item?.answer]),
+      ].map((item) => String(item || '').toLowerCase());
+      return queryBag.some((item) => item.includes(filters.query));
+    });
+    if (!filtered.length) {
+      target.innerHTML = emptyState('No saved question matched current filters.');
+      return;
+    }
+    target.innerHTML = filtered.map((question) => {
+      const type = String(question.type || 'mcq').toLowerCase();
+      const meta = `${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.subject || '')} · ${escapeHtml(question.topic || '')}`;
+      const body = type === 'cq'
+        ? `<div><p>${formatMathForDisplay(question.stimulus || question.question || 'CQ question')}</p><ul>${(question.subQuestions || []).map((item) => `<li><strong>${escapeHtml(item.label || '')}${item.label ? '.' : ''}</strong> ${formatMathForDisplay(item.prompt || '')}<br/><span class="muted-copy">Answer: ${formatMathForDisplay(item.answer || '')}</span></li>`).join('') || '<li>No sub-question found.</li>'}</ul></div>`
+        : `<div><p>${formatMathForDisplay(question.question || 'MCQ question')}</p><ul>${(question.options || []).map((opt, index) => `<li>${String.fromCharCode(65 + index)}. ${formatMathForDisplay(opt || '')}${index === Number(question.correct || 0) ? ' <strong>(Correct)</strong>' : ''}</li>`).join('') || '<li>No option found.</li>'}</ul>${question.explanation ? `<p class="muted-copy"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation)}</p>` : ''}</div>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(type.toUpperCase())}</h4><p class="muted-copy">${meta}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div>${body}</article>`;
+    }).join('');
     target.querySelectorAll('[data-edit-question]').forEach((button) => button.addEventListener('click', () => startQuestionEdit(button.dataset.editQuestion)));
     target.querySelectorAll('[data-delete-question]').forEach((button) => button.addEventListener('click', () => {
       state.questions = state.questions.filter((item) => item.id !== button.dataset.deleteQuestion);
