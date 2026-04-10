@@ -1458,7 +1458,7 @@
         if (filters.topic && question.topic !== filters.topic) return false;
         return true;
       });
-      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions · ${escapeHtml(String(exam.setCount || state.settings.printConfig.setCount || 1))} Sets</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Auto build from Question Bank</label><div class="app-form app-form--two-col"><label>MCQ Count<input type="number" min="0" value="30" data-auto-mcq="${exam.id}" /></label><label>CQ Count<input type="number" min="0" value="0" data-auto-cq="${exam.id}" /></label><label>Mode<select data-auto-mode="${exam.id}"><option value="replace">Replace existing</option><option value="append">Append with existing</option></select></label><label>Set Count<input type="number" min="1" max="10" value="${escapeAttr(String(exam.setCount || state.settings.printConfig.setCount || 1))}" data-auto-setcount="${exam.id}" /></label><div class="full-span entity-actions"><button type="button" class="toolbar-button" data-auto-apply-setcount="${exam.id}">Save Set Count</button><button type="button" class="submit-button" data-auto-generate="${exam.id}">Auto Generate Questions</button></div><p class="full-span muted-copy">উপরে Handle Exam filter (Level/Group/Subject/Topic) দিয়ে pool filter হবে, তারপর MCQ/CQ count অনুযায়ী auto assign হবে। Manual checkbox selection আগের মতোই কাজ করবে।</p></div><label>Assign questions (Manual)</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
     }).join('');
     renderPrintFormatActions(scopedExams[0] || null);
     target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => {
@@ -1490,6 +1490,26 @@
       renderExamManager();
       showToast('Exam question mapping updated.');
     }));
+    target.querySelectorAll('[data-auto-apply-setcount]').forEach((button) => button.addEventListener('click', () => {
+      const exam = findExam(button.dataset.autoApplySetcount);
+      if (!exam) return showToast('Exam not found.', 'error');
+      const input = target.querySelector(`[data-auto-setcount="${exam.id}"]`);
+      exam.setCount = Math.max(1, Math.min(10, Number(input?.value || 1)));
+      saveState();
+      renderExamManager();
+      showToast('Set count saved for this exam.');
+    }));
+    target.querySelectorAll('[data-auto-generate]').forEach((button) => button.addEventListener('click', () => {
+      const exam = findExam(button.dataset.autoGenerate);
+      if (!exam) return showToast('Exam not found.', 'error');
+      const mcqCount = Number(target.querySelector(`[data-auto-mcq="${exam.id}"]`)?.value || 0);
+      const cqCount = Number(target.querySelector(`[data-auto-cq="${exam.id}"]`)?.value || 0);
+      const mode = String(target.querySelector(`[data-auto-mode="${exam.id}"]`)?.value || 'replace');
+      const filtersNow = getQuestionFilters();
+      autoAssignQuestionsToExam(exam, { mcqCount, cqCount, mode, filters: filtersNow });
+      saveState();
+      renderExamManager();
+    }));
     target.querySelectorAll('[data-inline-edit]').forEach((button) => button.addEventListener('click', () => {
       activeManageEditQuestionId = activeManageEditQuestionId === button.dataset.inlineEdit ? '' : button.dataset.inlineEdit;
       renderExamManager();
@@ -1506,6 +1526,31 @@
       const input = button.closest('.inline-sub-row')?.querySelector('[data-inline-sub-label]');
       if (input) input.value = '';
     }));
+  }
+
+  function autoAssignQuestionsToExam(exam, options = {}) {
+    const mcqCount = Math.max(0, Number(options.mcqCount || 0));
+    const cqCount = Math.max(0, Number(options.cqCount || 0));
+    const mode = String(options.mode || 'replace');
+    const filters = options.filters || {};
+
+    const pool = state.questions.filter((question) => {
+      if (exam.subject && question.subject && question.subject !== exam.subject) return false;
+      if (filters.level && question.level !== filters.level) return false;
+      if (filters.group && question.group !== filters.group) return false;
+      if (filters.subject && question.subject !== filters.subject) return false;
+      if (filters.topic && question.topic !== filters.topic) return false;
+      return true;
+    });
+
+    const mcqPool = shuffleArray(pool.filter((q) => String(q.type || 'mcq').toLowerCase() !== 'cq'));
+    const cqPool = shuffleArray(pool.filter((q) => String(q.type || 'mcq').toLowerCase() === 'cq'));
+    const selectedIds = [...mcqPool.slice(0, mcqCount), ...cqPool.slice(0, cqCount)].map((q) => q.id);
+
+    if (!selectedIds.length) return showToast('Filter অনুযায়ী কোন প্রশ্ন পাওয়া যায়নি।', 'error');
+
+    exam.questionIds = mode === 'append' ? [...new Set([...(exam.questionIds || []), ...selectedIds])] : [...new Set(selectedIds)];
+    showToast(`Auto assigned: ${selectedIds.length} প্রশ্ন (${Math.min(mcqCount, mcqPool.length)} MCQ, ${Math.min(cqCount, cqPool.length)} CQ).`);
   }
 
   function buildInlineManageQuestionEditor(question) {
@@ -1692,7 +1737,7 @@
     const questions = snapshot?.questions
       ? snapshot.questions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: (question.subQuestions || []).map((item) => ({ ...item })) }))
       : (exam.questionIds || []).map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
-    const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
+    const safeSetCount = Math.max(1, Math.min(10, Number(exam.setCount || config.setCount || 1)));
     return Array.from({ length: safeSetCount }, (_, setIndex) => {
       const setCode = config.setLabelStyle === 'numeric' ? String(setIndex + 1) : String.fromCharCode(65 + setIndex);
       const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${setCode}`;
