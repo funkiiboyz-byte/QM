@@ -1,3 +1,4 @@
+import json
 import logging
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -11,7 +12,7 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
-app = FastAPI(title="Production OMR Detector", version="1.0.0")
+app = FastAPI(title="Production OMR Detector", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,6 +33,7 @@ async def upload_omr(
     image: UploadFile = File(...),
     questions: int = Form(50),
     options_per_question: int = Form(4),
+    answer_key_json: str | None = Form(default=None),
 ) -> OMRResponse:
     if image.content_type not in {"image/jpeg", "image/png", "image/jpg", "image/webp"}:
         raise HTTPException(status_code=415, detail="Unsupported file type")
@@ -40,6 +42,16 @@ async def upload_omr(
     if not content:
         raise HTTPException(status_code=400, detail="Empty image")
 
+    answer_key = None
+    if answer_key_json:
+        try:
+            parsed = json.loads(answer_key_json)
+            if not isinstance(parsed, dict):
+                raise ValueError("answer_key_json must be a JSON object like {\"1\": \"A\"}")
+            answer_key = {str(k): str(v).upper().strip() for k, v in parsed.items()}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid answer_key_json: {exc}") from exc
+
     try:
         result = process_omr(
             content,
@@ -47,6 +59,7 @@ async def upload_omr(
                 questions=max(1, min(300, questions)),
                 options_per_question=max(2, min(6, options_per_question)),
             ),
+            answer_key=answer_key,
         )
         return OMRResponse(**result)
     except OMRProcessingError as exc:
