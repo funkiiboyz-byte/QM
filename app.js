@@ -407,6 +407,7 @@
       level: document.getElementById('examLevel').value,
       group: document.getElementById('examGroup').value,
       subject: document.getElementById('examSubject').value,
+      version: document.getElementById('examVersion')?.value || 'Bangla',
       course: document.getElementById('examCourse').value.trim(),
       examNumber: document.getElementById('examNumber').value.trim(),
       title: document.getElementById('examTitle').value.trim(),
@@ -441,6 +442,7 @@
     document.getElementById('examGroup').value = exam.group || document.getElementById('examGroup').value;
     document.getElementById('examGroup').dispatchEvent(new Event('change'));
     document.getElementById('examSubject').value = exam.subject || document.getElementById('examSubject').value;
+    document.getElementById('examVersion').value = exam.version || 'Bangla';
     document.getElementById('examCourse').value = exam.course;
     document.getElementById('examNumber').value = exam.examNumber;
     document.getElementById('examTitle').value = exam.title;
@@ -457,7 +459,7 @@
     const target = document.getElementById('examSummaryList');
     if (!target) return;
     if (!state.exams.length) return target.innerHTML = emptyState('No exams created yet.');
-    target.innerHTML = state.exams.map((exam) => `<article class="entity-card"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${escapeHtml(exam.examDate)}</p></div><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a></article>`).join('');
+    target.innerHTML = state.exams.map((exam) => `<article class="entity-card"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${escapeHtml(exam.version || 'Bangla')} · ${escapeHtml(exam.examDate)}</p></div><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a></article>`).join('');
   }
 
   function initQuestionBankPage() {
@@ -509,10 +511,10 @@
     }
     resetOptions();
     resetSubQuestions();
-    ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterType'].forEach((id) => document.getElementById(id)?.addEventListener('change', renderQuestions));
+    ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterVersion', 'qFilterType'].forEach((id) => document.getElementById(id)?.addEventListener('change', renderQuestions));
     document.getElementById('qFilterSearch')?.addEventListener('input', renderQuestions);
     document.getElementById('qFilterResetBtn')?.addEventListener('click', () => {
-      ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterType', 'qFilterSearch'].forEach((id) => {
+      ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterVersion', 'qFilterType', 'qFilterSearch'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
@@ -551,10 +553,14 @@
       group: document.getElementById('qbGroup').value,
       subject: document.getElementById('qbSubject').value,
       topic: document.getElementById('qbTopic').value,
+      version: document.getElementById('qbVersion')?.value || 'Bangla',
       questionType: document.getElementById('promptQuestionType').value,
       difficulty: document.getElementById('promptDifficulty').value,
     };
-    document.getElementById('jsonPromptText').value = `You are generating question JSON for direct import.\nReturn ONLY valid JSON (no markdown, no explanation, no code block).\nFor MCQ explanation, write concise solution lines that can be rendered nicely in a solution sheet:\n- Use plain text only.\n- Use 3-6 short lines.\n- Put each line on a NEW line using \\n.\n- Do NOT use labels like "Step 1", "Step 2".\nUse this exact schema:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "question": "Write one ${payload.difficulty} difficulty question",\n      "options": ["Option A", "Option B", "Option C", "Option D"],\n      "answer": "A",\n      "explanation": "প্রথমে মূল ধারণা নির্ধারণ করি\\nতারপর প্রযোজ্য সূত্র বসাই\\nগণনা করে মান বের করি\\nশেষে চূড়ান্ত উত্তর লিখি"\n    }\n  ]\n}\nIf questionType is CQ then return:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "stimulus": "Passage or stem",\n      "subQuestions": [\n        { "label": "A", "prompt": "Question part A", "answer": "Answer A" },\n        { "label": "B", "prompt": "Question part B", "answer": "Answer B" }\n      ]\n    }\n  ]\n}`;
+    const languageInstruction = payload.version === 'English'
+      ? 'All question text, options, and answers MUST be in English only.'
+      : 'সব question text, option, answer এবং explanation অবশ্যই শুদ্ধ বাংলায় হবে।';
+    document.getElementById('jsonPromptText').value = `Generate strictly valid JSON for direct import into a Question Bank.\nReturn JSON only. No markdown, no comments, no code fences.\nHard constraints:\n1) Use exactly one root key: {"questions":[ ... ]}\n2) Every object must include: type, level, group, subject, topic, version\n3) version must be exactly "${payload.version}"\n4) ${languageInstruction}\n5) Do not leave empty strings.\n6) Keep curriculum aligned with:\n   level="${payload.level}", group="${payload.group}", subject="${payload.subject}", topic="${payload.topic}"\n7) Difficulty target: "${payload.difficulty}"\n\nIf questionType is MCQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "question": "single clear stem",\n      "options": ["opt A", "opt B", "opt C", "opt D"],\n      "answer": "A",\n      "explanation": "4-6 short lines with \\\\n separators"\n    }\n  ]\n}\n\nIf questionType is CQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "stimulus": "clear passage/context",\n      "subQuestions": [\n        { "label": "A", "prompt": "part A prompt", "answer": "accurate answer A" },\n        { "label": "B", "prompt": "part B prompt", "answer": "accurate answer B" },\n        { "label": "C", "prompt": "part C prompt", "answer": "accurate answer C" }\n      ]\n    }\n  ]\n}\n\nValidation before final output:\n- JSON parses without error\n- MCQ has exactly 4 options\n- answer must be one of A/B/C/D\n- CQ must include at least 2 subQuestions with non-empty prompt+answer`;
     showToast('Curriculum prompt generated.');
   }
 
@@ -700,6 +706,7 @@
       group: document.getElementById('qbGroup').value,
       subject: document.getElementById('qbSubject').value,
       topic: document.getElementById('qbTopic').value,
+      version: document.getElementById('qbVersion')?.value || 'Bangla',
       section: document.getElementById('qbTopic').value,
       question: document.getElementById('mcqQuestion').value.trim(),
       options: options.map((item) => item.text),
@@ -734,6 +741,7 @@
       group: document.getElementById('qbGroup').value,
       subject: document.getElementById('qbSubject').value,
       topic: document.getElementById('qbTopic').value,
+      version: document.getElementById('qbVersion')?.value || 'Bangla',
       section: document.getElementById('qbTopic').value,
       stimulus: document.getElementById('cqStimulus').value.trim(),
       subQuestions,
@@ -769,6 +777,7 @@
         group: document.getElementById('qbGroup').value,
         subject: document.getElementById('qbSubject').value,
         topic: document.getElementById('qbTopic').value,
+        version: document.getElementById('qbVersion')?.value || 'Bangla',
       };
       const importMeta = {
         partWise: !!document.getElementById('jsonImportPartWise')?.checked,
@@ -899,6 +908,7 @@
     const subject = resolveCurriculumSubject(level, group, String(question.subject || defaults.subject || '').trim());
     const rawTopic = String(question.topic || question.chapter || question.chapterName || question.chaptor || defaults.topic || '').trim();
     const topic = resolveCurriculumTopic(level, group, subject, rawTopic);
+    const version = String(question.version || defaults.version || 'Bangla').trim() || 'Bangla';
     const type = String(question.type || (question.stimulus ? 'cq' : 'mcq')).toLowerCase();
     const partLabel = String(question.part || question.section || (meta.partWise ? (meta.defaultPart || subject || topic || '') : '')).trim();
     if (type === 'cq') {
@@ -912,6 +922,7 @@
         group,
         subject,
         topic,
+        version,
         section: partLabel || question.section || topic || defaults.topic,
         partTagged: !!meta.partWise,
         stimulus,
@@ -943,6 +954,7 @@
       group,
       subject,
       topic,
+      version,
       section: partLabel || question.section || topic || defaults.topic,
       partTagged: !!meta.partWise,
       question: text,
@@ -1042,6 +1054,7 @@
       group: document.getElementById('qFilterGroup')?.value || '',
       subject: document.getElementById('qFilterSubject')?.value || '',
       topic: document.getElementById('qFilterTopic')?.value || '',
+      version: document.getElementById('qFilterVersion')?.value || '',
       type: (document.getElementById('qFilterType')?.value || '').toLowerCase(),
       query: (document.getElementById('qFilterSearch')?.value || '').trim().toLowerCase(),
     };
@@ -1055,10 +1068,11 @@
       if (filters.group && question.group !== filters.group) return false;
       if (filters.subject && question.subject !== filters.subject) return false;
       if (filters.topic && question.topic !== filters.topic) return false;
+      if (filters.version && String(question.version || 'Bangla') !== filters.version) return false;
       if (filters.type && String(question.type || 'mcq').toLowerCase() !== filters.type) return false;
       if (!filters.query) return true;
       const queryBag = [
-        question.question, question.stimulus, question.explanation, question.level, question.group, question.subject, question.topic, question.section,
+        question.question, question.stimulus, question.explanation, question.level, question.group, question.subject, question.topic, question.section, question.version,
         ...(question.options || []),
         ...(question.subQuestions || []).flatMap((item) => [item?.label, item?.prompt, item?.answer]),
       ].map((item) => String(item || '').toLowerCase());
@@ -1070,7 +1084,7 @@
     }
     target.innerHTML = filtered.map((question) => {
       const type = String(question.type || 'mcq').toLowerCase();
-      const meta = `${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.subject || '')} · ${escapeHtml(question.topic || '')}`;
+      const meta = `${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.subject || '')} · ${escapeHtml(question.topic || '')} · ${escapeHtml(question.version || 'Bangla')}`;
       const body = type === 'cq'
         ? `<div><p>${formatMathForDisplay(question.stimulus || question.question || 'CQ question')}</p><ul>${(question.subQuestions || []).map((item) => `<li><strong>${escapeHtml(item.label || '')}${item.label ? '.' : ''}</strong> ${formatMathForDisplay(item.prompt || '')}<br/><span class="muted-copy">Answer: ${formatMathForDisplay(item.answer || '')}</span></li>`).join('') || '<li>No sub-question found.</li>'}</ul></div>`
         : `<div><p>${formatMathForDisplay(question.question || 'MCQ question')}</p><ul>${(question.options || []).map((opt, index) => `<li>${String.fromCharCode(65 + index)}. ${formatMathForDisplay(opt || '')}${index === Number(question.correct || 0) ? ' <strong>(Correct)</strong>' : ''}</li>`).join('') || '<li>No option found.</li>'}</ul>${question.explanation ? `<p class="muted-copy"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation)}</p>` : ''}</div>`;
@@ -1108,6 +1122,8 @@
     document.getElementById('qbSubject').value = question.subject || document.getElementById('qbSubject').value;
     document.getElementById('qbSubject').dispatchEvent(new Event('change'));
     document.getElementById('qbTopic').value = question.topic || document.getElementById('qbTopic').value;
+    const versionInput = document.getElementById('qbVersion');
+    if (versionInput) versionInput.value = question.version || 'Bangla';
 
     if ((question.type || 'mcq') === 'cq') {
       document.querySelector('[data-mode="cq"]').click();
@@ -1452,13 +1468,14 @@
     target.innerHTML = scopedExams.map((exam) => {
       const filteredQuestions = state.questions.filter((question) => {
         if (exam.subject && question.subject && question.subject !== exam.subject) return false;
+        if (exam.version && String(question.version || 'Bangla') !== String(exam.version)) return false;
         if (filters.level && question.level !== filters.level) return false;
         if (filters.group && question.group !== filters.group) return false;
         if (filters.subject && question.subject !== filters.subject) return false;
         if (filters.topic && question.topic !== filters.topic) return false;
         return true;
       });
-      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions · ${escapeHtml(String(exam.setCount || state.settings.printConfig.setCount || 1))} Sets</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Auto build from Question Bank</label><div class="app-form app-form--two-col"><label>MCQ Count<input type="number" min="0" value="30" data-auto-mcq="${exam.id}" /></label><label>CQ Count<input type="number" min="0" value="0" data-auto-cq="${exam.id}" /></label><label>Mode<select data-auto-mode="${exam.id}"><option value="replace">Replace existing</option><option value="append">Append with existing</option></select></label><label>Set Count<input type="number" min="1" max="10" value="${escapeAttr(String(exam.setCount || state.settings.printConfig.setCount || 1))}" data-auto-setcount="${exam.id}" /></label><div class="full-span entity-actions"><button type="button" class="toolbar-button" data-auto-apply-setcount="${exam.id}">Save Set Count</button><button type="button" class="submit-button" data-auto-generate="${exam.id}">Auto Generate Questions</button></div><p class="full-span muted-copy">উপরে Handle Exam filter (Level/Group/Subject/Topic) দিয়ে pool filter হবে, তারপর MCQ/CQ count অনুযায়ী auto assign হবে। Manual checkbox selection আগের মতোই কাজ করবে।</p></div><label>Assign questions (Manual)</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${escapeHtml(exam.version || 'Bangla')} · ${exam.questionIds.length} Questions · ${escapeHtml(String(exam.setCount || state.settings.printConfig.setCount || 1))} Sets</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Auto build from Question Bank</label><div class="app-form app-form--two-col"><label>MCQ Count<input type="number" min="0" value="30" data-auto-mcq="${exam.id}" /></label><label>CQ Count<input type="number" min="0" value="0" data-auto-cq="${exam.id}" /></label><label>Mode<select data-auto-mode="${exam.id}"><option value="replace">Replace existing</option><option value="append">Append with existing</option></select></label><label>Version<select data-auto-version="${exam.id}"><option value="Bangla" ${String(exam.version || 'Bangla') === 'Bangla' ? 'selected' : ''}>Bangla Version</option><option value="English" ${String(exam.version || 'Bangla') === 'English' ? 'selected' : ''}>English Version</option></select></label><label>Set Count<input type="number" min="1" max="10" value="${escapeAttr(String(exam.setCount || state.settings.printConfig.setCount || 1))}" data-auto-setcount="${exam.id}" /></label><div class="full-span entity-actions"><button type="button" class="toolbar-button" data-auto-apply-setcount="${exam.id}">Save Set Count</button><button type="button" class="submit-button" data-auto-generate="${exam.id}">Auto Generate Questions</button></div><p class="full-span muted-copy">উপরে Handle Exam filter (Level/Group/Subject/Topic) + Version অনুযায়ী pool filter হবে। তারপর MCQ/CQ count অনুযায়ী auto assign হবে। Manual checkbox selection আগের মতোই কাজ করবে।</p></div><label>Assign questions (Manual)</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.version || 'Bangla')} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
     }).join('');
     renderPrintFormatActions(scopedExams[0] || null);
     target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => {
@@ -1505,8 +1522,9 @@
       const mcqCount = Number(target.querySelector(`[data-auto-mcq="${exam.id}"]`)?.value || 0);
       const cqCount = Number(target.querySelector(`[data-auto-cq="${exam.id}"]`)?.value || 0);
       const mode = String(target.querySelector(`[data-auto-mode="${exam.id}"]`)?.value || 'replace');
+      const version = String(target.querySelector(`[data-auto-version="${exam.id}"]`)?.value || exam.version || 'Bangla');
       const filtersNow = getQuestionFilters();
-      autoAssignQuestionsToExam(exam, { mcqCount, cqCount, mode, filters: filtersNow });
+      autoAssignQuestionsToExam(exam, { mcqCount, cqCount, mode, version, filters: filtersNow });
       saveState();
       renderExamManager();
     }));
@@ -1532,6 +1550,7 @@
     const mcqCount = Math.max(0, Number(options.mcqCount || 0));
     const cqCount = Math.max(0, Number(options.cqCount || 0));
     const mode = String(options.mode || 'replace');
+    const version = String(options.version || exam.version || 'Bangla');
     const filters = options.filters || {};
 
     const pool = state.questions.filter((question) => {
@@ -1540,6 +1559,7 @@
       if (filters.group && question.group !== filters.group) return false;
       if (filters.subject && question.subject !== filters.subject) return false;
       if (filters.topic && question.topic !== filters.topic) return false;
+      if (version && String(question.version || 'Bangla') !== version) return false;
       return true;
     });
 
@@ -1550,6 +1570,7 @@
     if (!selectedIds.length) return showToast('Filter অনুযায়ী কোন প্রশ্ন পাওয়া যায়নি।', 'error');
 
     exam.questionIds = mode === 'append' ? [...new Set([...(exam.questionIds || []), ...selectedIds])] : [...new Set(selectedIds)];
+    exam.version = version;
     showToast(`Auto assigned: ${selectedIds.length} প্রশ্ন (${Math.min(mcqCount, mcqPool.length)} MCQ, ${Math.min(cqCount, cqPool.length)} CQ).`);
   }
 
@@ -1737,11 +1758,12 @@
     const questions = snapshot?.questions
       ? snapshot.questions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: (question.subQuestions || []).map((item) => ({ ...item })) }))
       : (exam.questionIds || []).map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
+    const scopedQuestions = questions.filter((question) => !exam.version || String(question.version || 'Bangla') === String(exam.version));
     const safeSetCount = Math.max(1, Math.min(10, Number(exam.setCount || config.setCount || 1)));
     return Array.from({ length: safeSetCount }, (_, setIndex) => {
       const setCode = config.setLabelStyle === 'numeric' ? String(setIndex + 1) : String.fromCharCode(65 + setIndex);
       const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${setCode}`;
-      const generated = buildQuestionSet(questions, config, { seed: `${exam.id}-${setCode}` });
+      const generated = buildQuestionSet(scopedQuestions, config, { seed: `${exam.id}-${setCode}` });
       const { setQuestions, answerKey } = applyLiveLayoutToSet(exam.id, setCode, generated.setQuestions);
       return { setIndex, setCode, setLabel, setQuestions, answerKey, config };
     });
