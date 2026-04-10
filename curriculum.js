@@ -16,9 +16,9 @@ window.MEGAPREP_CURRICULUM = {
       Science: ['Scientific Process', 'Living World', 'Matter', 'Energy', 'Earth & Space'],
     },
     Science: {
-      Physics: ['Physical Quantities', 'Motion', 'Force & Pressure', 'Work Power Energy', 'Heat', 'Wave & Sound', 'Light', 'Electricity', 'Modern Physics Intro'],
-      Chemistry: ['States of Matter', 'Structure of Atom', 'Periodic Table', 'Chemical Bond', 'Chemical Reaction', 'Acid Base Salt', 'Metals', 'Organic Chemistry'],
-      Biology: ['Cell & Tissue', 'Plant Physiology', 'Animal Physiology', 'Reproduction', 'Heredity & Evolution', 'Environment'],
+      Physics: ['Physical Quantities', 'Measurement & Error', 'Motion', 'Force & Pressure', 'Work Power Energy', 'State of Matter & Pressure', 'Heat & Temperature', 'Wave & Sound', 'Light & Reflection', 'Refraction & Lenses', 'Static Electricity', 'Current Electricity', 'Magnetism', 'Electromagnetism', 'Electronic Components', 'Renewable Energy', 'Modern Physics Intro'],
+      Chemistry: ['States of Matter', 'Structure of Atom', 'Periodic Table', 'Chemical Bond', 'Mole Concept', 'Chemical Reaction', 'Acid Base Salt', 'Metals', 'Mineral Resources', 'Organic Chemistry', 'Hydrocarbon', 'Environmental Chemistry'],
+      Biology: ['Cell & Tissue', 'Cell Division', 'Classification', 'Plant Physiology', 'Animal Physiology', 'Digestion & Nutrition', 'Respiration & Circulation', 'Reproduction', 'Genetics', 'Heredity & Evolution', 'Environment & Ecosystem'],
       'Higher Mathematics': ['Set & Function', 'Algebra', 'Coordinate Geometry', 'Trigonometry', 'Calculus Basics', 'Probability & Statistics'],
     },
     Humanities: {
