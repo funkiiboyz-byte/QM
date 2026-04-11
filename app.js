@@ -344,35 +344,44 @@
     renderExamSummary();
   }
 
-  function bindCurriculumSelectors(ids, syncCourse = false) {
+  function bindCurriculumSelectors(ids, syncCourse = false, includeAll = true) {
     const level = document.getElementById(ids.level);
     const group = document.getElementById(ids.group);
     const subject = document.getElementById(ids.subject);
     const topic = ids.topic ? document.getElementById(ids.topic) : null;
     if (!level || !group || !subject) return;
 
+    const withAll = (items) => includeAll ? ['<option value="">All</option>'].concat(items.map((item) => `<option value="${item}">${item}</option>`)).join('') : items.map((item) => `<option value="${item}">${item}</option>`).join('');
     const renderGroups = () => {
-      level.innerHTML = Object.keys(CURRICULUM).map((key) => `<option value="${key}">${key}</option>`).join('');
+      level.innerHTML = withAll(Object.keys(CURRICULUM));
       updateGroups();
     };
 
     const updateGroups = () => {
-      const groups = Object.keys(CURRICULUM[level.value] || {});
-      group.innerHTML = groups.map((key) => `<option value="${key}">${key}</option>`).join('');
+      const groups = level.value ? Object.keys(CURRICULUM[level.value] || {}) : [...new Set(Object.values(CURRICULUM).flatMap((item) => Object.keys(item || {})))];
+      group.innerHTML = withAll(groups);
       updateSubjects();
     };
 
     const updateSubjects = () => {
-      const subjects = Object.keys(CURRICULUM[level.value]?.[group.value] || {});
-      subject.innerHTML = subjects.map((key) => `<option value="${key}">${key}</option>`).join('');
+      const subjects = level.value && group.value
+        ? Object.keys(CURRICULUM[level.value]?.[group.value] || {})
+        : level.value
+          ? [...new Set(Object.values(CURRICULUM[level.value] || {}).flatMap((item) => Object.keys(item || {})))]
+          : [...new Set(Object.values(CURRICULUM).flatMap((lvl) => Object.values(lvl || {}).flatMap((grp) => Object.keys(grp || {}))))];
+      subject.innerHTML = withAll(subjects);
       updateTopics();
       if (syncCourse && document.getElementById('examCourse')) document.getElementById('examCourse').value = `${level.value} ${subject.value}`;
     };
 
     const updateTopics = () => {
       if (!topic) return;
-      const topics = CURRICULUM[level.value]?.[group.value]?.[subject.value] || [];
-      topic.innerHTML = topics.map((item) => `<option value="${item}">${item}</option>`).join('');
+      const topics = level.value && group.value && subject.value
+        ? CURRICULUM[level.value]?.[group.value]?.[subject.value] || []
+        : level.value && group.value
+          ? [...new Set(Object.values(CURRICULUM[level.value]?.[group.value] || {}).flat())]
+          : [...new Set(Object.values(CURRICULUM).flatMap((lvl) => Object.values(lvl || {}).flatMap((grp) => Object.values(grp || {}).flat())))];
+      topic.innerHTML = withAll(topics);
     };
 
     level.addEventListener('change', updateGroups);
@@ -407,6 +416,7 @@
       level: document.getElementById('examLevel').value,
       group: document.getElementById('examGroup').value,
       subject: document.getElementById('examSubject').value,
+      version: document.getElementById('examVersion')?.value || 'Bangla',
       course: document.getElementById('examCourse').value.trim(),
       examNumber: document.getElementById('examNumber').value.trim(),
       title: document.getElementById('examTitle').value.trim(),
@@ -441,6 +451,7 @@
     document.getElementById('examGroup').value = exam.group || document.getElementById('examGroup').value;
     document.getElementById('examGroup').dispatchEvent(new Event('change'));
     document.getElementById('examSubject').value = exam.subject || document.getElementById('examSubject').value;
+    document.getElementById('examVersion').value = exam.version || 'Bangla';
     document.getElementById('examCourse').value = exam.course;
     document.getElementById('examNumber').value = exam.examNumber;
     document.getElementById('examTitle').value = exam.title;
@@ -457,11 +468,12 @@
     const target = document.getElementById('examSummaryList');
     if (!target) return;
     if (!state.exams.length) return target.innerHTML = emptyState('No exams created yet.');
-    target.innerHTML = state.exams.map((exam) => `<article class="entity-card"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${escapeHtml(exam.examDate)}</p></div><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a></article>`).join('');
+    target.innerHTML = state.exams.map((exam) => `<article class="entity-card"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${escapeHtml(exam.version || 'Bangla')} · ${escapeHtml(exam.examDate)}</p></div><a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a></article>`).join('');
   }
 
   function initQuestionBankPage() {
     bindCurriculumSelectors({ level: 'qbLevel', group: 'qbGroup', subject: 'qbSubject', topic: 'qbTopic' });
+    bindCurriculumFilterSelectors({ level: 'qFilterLevel', group: 'qFilterGroup', subject: 'qFilterSubject', topic: 'qFilterTopic' });
     bindQuestionExamTarget();
     document.getElementById('questionModeTabs').addEventListener('click', switchQuestionMode);
     document.getElementById('addOptionBtn').addEventListener('click', () => { document.getElementById('optionList').appendChild(createOptionRow()); updateOptionIndexes(); updateQuestionPreview(); });
@@ -508,6 +520,26 @@
     }
     resetOptions();
     resetSubQuestions();
+    ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterVersion', 'qFilterType'].forEach((id) => document.getElementById(id)?.addEventListener('change', renderQuestions));
+    document.getElementById('qFilterSearch')?.addEventListener('input', renderQuestions);
+    document.getElementById('qFilterResetBtn')?.addEventListener('click', () => {
+      ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterVersion', 'qFilterType', 'qFilterSearch'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      renderQuestions();
+    });
+    document.getElementById('qDeleteFilteredBtn')?.addEventListener('click', () => {
+      const matches = getFilteredQuestionList(getQuestionListFilters());
+      if (!matches.length) return showToast('Delete করার মতো filtered question নেই।', 'error');
+      if (!window.confirm(`আপনি নিশ্চিত? ${matches.length}টি question permanently delete হবে.`)) return;
+      const ids = new Set(matches.map((item) => item.id));
+      state.questions = state.questions.filter((item) => !ids.has(item.id));
+      state.exams.forEach((exam) => { exam.questionIds = exam.questionIds.filter((id) => !ids.has(id)); });
+      saveState();
+      renderQuestions();
+      showToast(`${matches.length}টি question delete হয়েছে।`);
+    });
     renderQuestions();
     const query = new URLSearchParams(window.location.search);
     const queryExamId = query.get('examId') || '';
@@ -541,10 +573,14 @@
       group: document.getElementById('qbGroup').value,
       subject: document.getElementById('qbSubject').value,
       topic: document.getElementById('qbTopic').value,
+      version: document.getElementById('qbVersion')?.value || 'Bangla',
       questionType: document.getElementById('promptQuestionType').value,
       difficulty: document.getElementById('promptDifficulty').value,
     };
-    document.getElementById('jsonPromptText').value = `You are generating question JSON for direct import.\nReturn ONLY valid JSON (no markdown, no explanation, no code block).\nFor MCQ explanation, write concise solution lines that can be rendered nicely in a solution sheet:\n- Use plain text only.\n- Use 3-6 short lines.\n- Put each line on a NEW line using \\n.\n- Do NOT use labels like "Step 1", "Step 2".\nUse this exact schema:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "question": "Write one ${payload.difficulty} difficulty question",\n      "options": ["Option A", "Option B", "Option C", "Option D"],\n      "answer": "A",\n      "explanation": "প্রথমে মূল ধারণা নির্ধারণ করি\\nতারপর প্রযোজ্য সূত্র বসাই\\nগণনা করে মান বের করি\\nশেষে চূড়ান্ত উত্তর লিখি"\n    }\n  ]\n}\nIf questionType is CQ then return:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "stimulus": "Passage or stem",\n      "subQuestions": [\n        { "label": "A", "prompt": "Question part A", "answer": "Answer A" },\n        { "label": "B", "prompt": "Question part B", "answer": "Answer B" }\n      ]\n    }\n  ]\n}`;
+    const languageInstruction = payload.version === 'English'
+      ? 'All question text, options, and answers MUST be in English only.'
+      : 'সব question text, option, answer এবং explanation অবশ্যই শুদ্ধ বাংলায় হবে।';
+    document.getElementById('jsonPromptText').value = `Generate strictly valid JSON for direct import into a Question Bank.\nReturn JSON only. No markdown, no comments, no code fences.\nHard constraints:\n1) Use exactly one root key: {"questions":[ ... ]}\n2) Every object must include: type, level, group, subject, topic, version\n3) version must be exactly "${payload.version}"\n4) ${languageInstruction}\n5) Do not leave empty strings.\n6) Keep curriculum aligned with:\n   level="${payload.level}", group="${payload.group}", subject="${payload.subject}", topic="${payload.topic}"\n7) Difficulty target: "${payload.difficulty}"\n8) For multiline text use literal \\\\n in JSON (especially CQ answers/explanations)\n\nIf questionType is MCQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "question": "single clear stem",\n      "options": ["opt A", "opt B", "opt C", "opt D"],\n      "answer": "A",\n      "explanation": "4-6 short lines with \\\\n separators"\n    }\n  ]\n}\n\nIf questionType is CQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "stimulus": "clear passage/context",\n      "subQuestions": [\n        { "label": "A", "prompt": "part A prompt", "answer": "accurate answer A\\\\nsecond line if needed" },\n        { "label": "B", "prompt": "part B prompt", "answer": "accurate answer B\\\\nsecond line if needed" },\n        { "label": "C", "prompt": "part C prompt", "answer": "accurate answer C\\\\nsecond line if needed" }\n      ]\n    }\n  ]\n}\n\nValidation before final output:\n- JSON parses without error\n- MCQ has exactly 4 options\n- answer must be one of A/B/C/D\n- CQ must include at least 2 subQuestions with non-empty prompt+answer`;
     showToast('Curriculum prompt generated.');
   }
 
@@ -690,6 +726,7 @@
       group: document.getElementById('qbGroup').value,
       subject: document.getElementById('qbSubject').value,
       topic: document.getElementById('qbTopic').value,
+      version: document.getElementById('qbVersion')?.value || 'Bangla',
       section: document.getElementById('qbTopic').value,
       question: document.getElementById('mcqQuestion').value.trim(),
       options: options.map((item) => item.text),
@@ -724,6 +761,7 @@
       group: document.getElementById('qbGroup').value,
       subject: document.getElementById('qbSubject').value,
       topic: document.getElementById('qbTopic').value,
+      version: document.getElementById('qbVersion')?.value || 'Bangla',
       section: document.getElementById('qbTopic').value,
       stimulus: document.getElementById('cqStimulus').value.trim(),
       subQuestions,
@@ -759,6 +797,7 @@
         group: document.getElementById('qbGroup').value,
         subject: document.getElementById('qbSubject').value,
         topic: document.getElementById('qbTopic').value,
+        version: document.getElementById('qbVersion')?.value || 'Bangla',
       };
       const importMeta = {
         partWise: !!document.getElementById('jsonImportPartWise')?.checked,
@@ -889,6 +928,7 @@
     const subject = resolveCurriculumSubject(level, group, String(question.subject || defaults.subject || '').trim());
     const rawTopic = String(question.topic || question.chapter || question.chapterName || question.chaptor || defaults.topic || '').trim();
     const topic = resolveCurriculumTopic(level, group, subject, rawTopic);
+    const version = String(question.version || defaults.version || 'Bangla').trim() || 'Bangla';
     const type = String(question.type || (question.stimulus ? 'cq' : 'mcq')).toLowerCase();
     const partLabel = String(question.part || question.section || (meta.partWise ? (meta.defaultPart || subject || topic || '') : '')).trim();
     if (type === 'cq') {
@@ -902,6 +942,7 @@
         group,
         subject,
         topic,
+        version,
         section: partLabel || question.section || topic || defaults.topic,
         partTagged: !!meta.partWise,
         stimulus,
@@ -933,6 +974,7 @@
       group,
       subject,
       topic,
+      version,
       section: partLabel || question.section || topic || defaults.topic,
       partTagged: !!meta.partWise,
       question: text,
@@ -1027,12 +1069,20 @@
     const target = document.getElementById('questionList');
     if (!target) return;
     if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
-    const ordered = [...state.questions].sort((a, b) => {
-      const importedDiff = new Date(b.importedAt || 0).getTime() - new Date(a.importedAt || 0).getTime();
-      if (importedDiff !== 0) return importedDiff;
-      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-    });
-    target.innerHTML = ordered.map((question) => `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.subject || '')}</h4><p>${formatMathForDisplay(question.question || question.stimulus || 'Question')}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div><p class="muted-copy">${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.topic || '')}</p></article>`).join('');
+    const filters = getQuestionListFilters();
+    const filtered = getFilteredQuestionList(filters);
+    if (!filtered.length) {
+      target.innerHTML = emptyState('No saved question matched current filters.');
+      return;
+    }
+    target.innerHTML = filtered.map((question) => {
+      const type = String(question.type || 'mcq').toLowerCase();
+      const meta = `${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.subject || '')} · ${escapeHtml(question.topic || '')} · ${escapeHtml(question.version || 'Bangla')}`;
+      const body = type === 'cq'
+        ? `<div><p>${formatMathForDisplay(question.stimulus || question.question || 'CQ question')}</p><ul>${(question.subQuestions || []).map((item) => `<li><strong>${escapeHtml(item.label || '')}${item.label ? '.' : ''}</strong> ${formatMathForDisplay(item.prompt || '')}<br/><span class="muted-copy">Answer: ${formatExplanationForDisplay(item.answer || '')}</span></li>`).join('') || '<li>No sub-question found.</li>'}</ul></div>`
+        : `<div><p>${formatMathForDisplay(question.question || 'MCQ question')}</p><ul>${(question.options || []).map((opt, index) => `<li>${String.fromCharCode(65 + index)}. ${formatMathForDisplay(opt || '')}${index === Number(question.correct || 0) ? ' <strong>(Correct)</strong>' : ''}</li>`).join('') || '<li>No option found.</li>'}</ul>${question.explanation ? `<p class="muted-copy"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation)}</p>` : ''}</div>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(type.toUpperCase())}</h4><p class="muted-copy">${meta}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div>${body}</article>`;
+    }).join('');
     target.querySelectorAll('[data-edit-question]').forEach((button) => button.addEventListener('click', () => startQuestionEdit(button.dataset.editQuestion)));
     target.querySelectorAll('[data-delete-question]').forEach((button) => button.addEventListener('click', () => {
       state.questions = state.questions.filter((item) => item.id !== button.dataset.deleteQuestion);
@@ -1043,6 +1093,41 @@
       updateQuestionPreview();
       showToast('Question deleted.');
     }));
+  }
+
+  function getQuestionListFilters() {
+    return {
+      level: document.getElementById('qFilterLevel')?.value || '',
+      group: document.getElementById('qFilterGroup')?.value || '',
+      subject: document.getElementById('qFilterSubject')?.value || '',
+      topic: document.getElementById('qFilterTopic')?.value || '',
+      version: document.getElementById('qFilterVersion')?.value || '',
+      type: (document.getElementById('qFilterType')?.value || '').toLowerCase(),
+      query: (document.getElementById('qFilterSearch')?.value || '').trim().toLowerCase(),
+    };
+  }
+
+  function getFilteredQuestionList(filters = getQuestionListFilters()) {
+    const ordered = [...state.questions].sort((a, b) => {
+      const importedDiff = new Date(b.importedAt || 0).getTime() - new Date(a.importedAt || 0).getTime();
+      if (importedDiff !== 0) return importedDiff;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
+    return ordered.filter((question) => {
+      if (filters.level && question.level !== filters.level) return false;
+      if (filters.group && question.group !== filters.group) return false;
+      if (filters.subject && question.subject !== filters.subject) return false;
+      if (filters.topic && question.topic !== filters.topic) return false;
+      if (filters.version && String(question.version || 'Bangla') !== filters.version) return false;
+      if (filters.type && String(question.type || 'mcq').toLowerCase() !== filters.type) return false;
+      if (!filters.query) return true;
+      const queryBag = [
+        question.question, question.stimulus, question.explanation, question.level, question.group, question.subject, question.topic, question.section, question.version,
+        ...(question.options || []),
+        ...(question.subQuestions || []).flatMap((item) => [item?.label, item?.prompt, item?.answer]),
+      ].map((item) => String(item || '').toLowerCase());
+      return queryBag.some((item) => item.includes(filters.query));
+    });
   }
 
   function clearQuestionEditingState() {
@@ -1065,6 +1150,8 @@
     document.getElementById('qbSubject').value = question.subject || document.getElementById('qbSubject').value;
     document.getElementById('qbSubject').dispatchEvent(new Event('change'));
     document.getElementById('qbTopic').value = question.topic || document.getElementById('qbTopic').value;
+    const versionInput = document.getElementById('qbVersion');
+    if (versionInput) versionInput.value = question.version || 'Bangla';
 
     if ((question.type || 'mcq') === 'cq') {
       document.querySelector('[data-mode="cq"]').click();
@@ -1121,7 +1208,7 @@
       const blocks = normalized.map((question, index) => {
         const displaySubject = question.subject || defaults.subject || '';
         if (question.type === 'cq') {
-          const subs = (question.subQuestions || []).map((sub) => `<li><strong>${escapeHtml(sub.label || '')}.</strong> ${formatMathForDisplay(sub.prompt || '', { subject: displaySubject })}<br/><span class="muted-copy">Answer: ${formatMathForDisplay(sub.answer || '', { subject: displaySubject })}</span></li>`).join('');
+          const subs = (question.subQuestions || []).map((sub) => `<li><strong>${escapeHtml(sub.label || '')}.</strong> ${formatMathForDisplay(sub.prompt || '', { subject: displaySubject })}<br/><span class="muted-copy">Answer: ${formatExplanationForDisplay(sub.answer || '', { subject: displaySubject })}</span></li>`).join('');
           return `<div class="preview-sub"><strong>Q${index + 1}. ${formatMathForDisplay(question.stimulus || '', { subject: displaySubject })}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="CQ" />` : ''}<ul>${subs || '<li>No sub-questions found.</li>'}</ul></div>`;
         }
         const options = (question.options || []).map((option, optionIndex) => {
@@ -1409,13 +1496,14 @@
     target.innerHTML = scopedExams.map((exam) => {
       const filteredQuestions = state.questions.filter((question) => {
         if (exam.subject && question.subject && question.subject !== exam.subject) return false;
+        if (exam.version && String(question.version || 'Bangla') !== String(exam.version)) return false;
         if (filters.level && question.level !== filters.level) return false;
         if (filters.group && question.group !== filters.group) return false;
         if (filters.subject && question.subject !== filters.subject) return false;
         if (filters.topic && question.topic !== filters.topic) return false;
         return true;
       });
-      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${exam.questionIds.length} Questions</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Assign questions</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${escapeHtml(exam.version || 'Bangla')} · ${exam.questionIds.length} Questions · ${escapeHtml(String(exam.setCount || state.settings.printConfig.setCount || 1))} Sets</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Auto build from Question Bank</label><div class="app-form app-form--two-col"><label>MCQ Count<input type="number" min="0" value="30" data-auto-mcq="${exam.id}" /></label><label>CQ Count<input type="number" min="0" value="0" data-auto-cq="${exam.id}" /></label><label>Mode<select data-auto-mode="${exam.id}"><option value="replace">Replace existing</option><option value="append">Append with existing</option></select></label><label>Version<select data-auto-version="${exam.id}"><option value="Bangla" ${String(exam.version || 'Bangla') === 'Bangla' ? 'selected' : ''}>Bangla Version</option><option value="English" ${String(exam.version || 'Bangla') === 'English' ? 'selected' : ''}>English Version</option></select></label><label>Set Count<input type="number" min="1" max="10" value="${escapeAttr(String(exam.setCount || state.settings.printConfig.setCount || 1))}" data-auto-setcount="${exam.id}" /></label><div class="full-span entity-actions"><button type="button" class="toolbar-button" data-auto-apply-setcount="${exam.id}">Save Set Count</button><button type="button" class="submit-button" data-auto-generate="${exam.id}">Auto Generate Questions</button></div><p class="full-span muted-copy">উপরে Handle Exam filter (Level/Group/Subject/Topic) + Version অনুযায়ী pool filter হবে। তারপর MCQ/CQ count অনুযায়ী auto assign হবে। Manual checkbox selection আগের মতোই কাজ করবে।</p></div><label>Assign questions (Manual)</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.version || 'Bangla')} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
     }).join('');
     renderPrintFormatActions(scopedExams[0] || null);
     target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => {
@@ -1447,6 +1535,27 @@
       renderExamManager();
       showToast('Exam question mapping updated.');
     }));
+    target.querySelectorAll('[data-auto-apply-setcount]').forEach((button) => button.addEventListener('click', () => {
+      const exam = findExam(button.dataset.autoApplySetcount);
+      if (!exam) return showToast('Exam not found.', 'error');
+      const input = target.querySelector(`[data-auto-setcount="${exam.id}"]`);
+      exam.setCount = Math.max(1, Math.min(10, Number(input?.value || 1)));
+      saveState();
+      renderExamManager();
+      showToast('Set count saved for this exam.');
+    }));
+    target.querySelectorAll('[data-auto-generate]').forEach((button) => button.addEventListener('click', () => {
+      const exam = findExam(button.dataset.autoGenerate);
+      if (!exam) return showToast('Exam not found.', 'error');
+      const mcqCount = Number(target.querySelector(`[data-auto-mcq="${exam.id}"]`)?.value || 0);
+      const cqCount = Number(target.querySelector(`[data-auto-cq="${exam.id}"]`)?.value || 0);
+      const mode = String(target.querySelector(`[data-auto-mode="${exam.id}"]`)?.value || 'replace');
+      const version = String(target.querySelector(`[data-auto-version="${exam.id}"]`)?.value || exam.version || 'Bangla');
+      const filtersNow = getQuestionFilters();
+      autoAssignQuestionsToExam(exam, { mcqCount, cqCount, mode, version, filters: filtersNow });
+      saveState();
+      renderExamManager();
+    }));
     target.querySelectorAll('[data-inline-edit]').forEach((button) => button.addEventListener('click', () => {
       activeManageEditQuestionId = activeManageEditQuestionId === button.dataset.inlineEdit ? '' : button.dataset.inlineEdit;
       renderExamManager();
@@ -1463,6 +1572,34 @@
       const input = button.closest('.inline-sub-row')?.querySelector('[data-inline-sub-label]');
       if (input) input.value = '';
     }));
+  }
+
+  function autoAssignQuestionsToExam(exam, options = {}) {
+    const mcqCount = Math.max(0, Number(options.mcqCount || 0));
+    const cqCount = Math.max(0, Number(options.cqCount || 0));
+    const mode = String(options.mode || 'replace');
+    const version = String(options.version || exam.version || 'Bangla');
+    const filters = options.filters || {};
+
+    const pool = state.questions.filter((question) => {
+      if (exam.subject && question.subject && question.subject !== exam.subject) return false;
+      if (filters.level && question.level !== filters.level) return false;
+      if (filters.group && question.group !== filters.group) return false;
+      if (filters.subject && question.subject !== filters.subject) return false;
+      if (filters.topic && question.topic !== filters.topic) return false;
+      if (version && String(question.version || 'Bangla') !== version) return false;
+      return true;
+    });
+
+    const mcqPool = shuffleArray(pool.filter((q) => String(q.type || 'mcq').toLowerCase() !== 'cq'));
+    const cqPool = shuffleArray(pool.filter((q) => String(q.type || 'mcq').toLowerCase() === 'cq'));
+    const selectedIds = [...mcqPool.slice(0, mcqCount), ...cqPool.slice(0, cqCount)].map((q) => q.id);
+
+    if (!selectedIds.length) return showToast('Filter অনুযায়ী কোন প্রশ্ন পাওয়া যায়নি।', 'error');
+
+    exam.questionIds = mode === 'append' ? [...new Set([...(exam.questionIds || []), ...selectedIds])] : [...new Set(selectedIds)];
+    exam.version = version;
+    showToast(`Auto assigned: ${selectedIds.length} প্রশ্ন (${Math.min(mcqCount, mcqPool.length)} MCQ, ${Math.min(cqCount, cqPool.length)} CQ).`);
   }
 
   function buildInlineManageQuestionEditor(question) {
@@ -1649,11 +1786,12 @@
     const questions = snapshot?.questions
       ? snapshot.questions.map((question) => ({ ...question, options: [...(question.options || [])], subQuestions: (question.subQuestions || []).map((item) => ({ ...item })) }))
       : (exam.questionIds || []).map((id) => state.questions.find((question) => question.id === id)).filter(Boolean);
-    const safeSetCount = Math.max(1, Math.min(10, Number(config.setCount || 1)));
+    const scopedQuestions = questions.filter((question) => !exam.version || String(question.version || 'Bangla') === String(exam.version));
+    const safeSetCount = Math.max(1, Math.min(10, Number(exam.setCount || config.setCount || 1)));
     return Array.from({ length: safeSetCount }, (_, setIndex) => {
       const setCode = config.setLabelStyle === 'numeric' ? String(setIndex + 1) : String.fromCharCode(65 + setIndex);
       const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${setCode}`;
-      const generated = buildQuestionSet(questions, config, { seed: `${exam.id}-${setCode}` });
+      const generated = buildQuestionSet(scopedQuestions, config, { seed: `${exam.id}-${setCode}` });
       const { setQuestions, answerKey } = applyLiveLayoutToSet(exam.id, setCode, generated.setQuestions);
       return { setIndex, setCode, setLabel, setQuestions, answerKey, config };
     });
@@ -2200,7 +2338,7 @@
           : '';
         currentSection = question.section || currentSection;
         const questionBody = question.type === 'cq'
-          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
+          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatExplanationForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
           : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span>${(question.optionImages || [])[optionIndex] ? `<div><img class="print-option-image" src="${(question.optionImages || [])[optionIndex]}" alt="Option ${optionIndex + 1}" /></div>` : ''}</li>`).join('')}</ul>${showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '', { subject: displaySubject })}</p>` : ''}`;
         const explanation = showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
         return `${sectionHeading}<article class="print-question"><h3>${number}. ${formatMathForDisplay(title, { subject: displaySubject })}</h3>${imageBlock}${questionBody}${explanation}</article>`;
@@ -2210,18 +2348,25 @@
       setMarkup.push(`<section class="paper set-paper">${qrBlock}<div class="board-head board-head--${escapeAttr(headerTheme)}">${headerLogos}<h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(config.paperSubject || exam.subject)} · ${escapeHtml(config.paperDate || exam.examDate)} · ${escapeHtml(config.paperType || exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
 
       if (config.includeAnswerSheet && !disableAnswerSheet) {
-        let mcqNo = 0;
-        const omrRows = answerKey.map((item) => {
-          if (item === 'CQ') return '';
-          mcqNo += 1;
-          const bubble = (label) => `<span class="omr-bubble ${item === label ? 'is-correct' : ''}">${label}</span>`;
-          return `<div class="omr-row"><span class="omr-qno">${mcqNo}</span><div class="omr-bubbles">${bubble('A')}${bubble('B')}${bubble('C')}${bubble('D')}</div></div>`;
-        }).join('');
-        answerSheets.push(`<section class="paper answer-sheet"><h2>OMR Sheet - ${escapeHtml(setLabel)}</h2><p class="muted-copy">Fill bubbles according to question numbers.</p><div class="omr-grid">${omrRows}</div></section>`);
+        const mcqAnswerKey = answerKey.filter((item) => item !== 'CQ');
+        const totalRows = 100;
+        const perColumn = 25;
+        const columns = Array.from({ length: 4 }, (_, colIdx) => {
+          const start = colIdx * perColumn + 1;
+          const end = Math.min(start + perColumn - 1, totalRows);
+          const rows = [];
+          for (let qno = start; qno <= end; qno += 1) {
+            const key = mcqAnswerKey[qno - 1] || '';
+            const bubble = (label) => `<span class="omr-bubble ${key === label ? 'is-correct' : ''}" aria-label="Q${qno}-${label}">${label}</span>`;
+            rows.push(`<div class="omr-row"><span class="omr-qno">${qno}.</span><div class="omr-bubbles">${bubble('A')}${bubble('B')}${bubble('C')}${bubble('D')}</div></div>`);
+          }
+          return `<div class="omr-column"><div class="omr-column-head">Q ${start}-${end}</div>${rows.join('')}</div>`;
+        });
+        answerSheets.push(`<section class="paper answer-sheet"><div class="omr-sheet-head"><h2>OMR Sheet - ${escapeHtml(setLabel)}</h2><p class="muted-copy">100 MCQ grid (4 columns × 25 rows). প্রতিটি প্রশ্নে একটি bubble ভরাট করুন।</p></div><div class="omr-grid omr-grid--4col">${columns.join('')}</div></section>`);
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.header-logo{position:absolute;top:8px;width:56px;height:56px;object-fit:contain}.header-logo--left{left:8px}.header-logo--right{right:8px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.part-heading{break-inside:avoid;page-break-inside:avoid;font-weight:800;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:4px 8px;margin:0 0 6px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.print-question-image{display:block;max-width:100%;max-height:170px;object-fit:contain;border:1px solid #d8dee9;border-radius:8px;background:#fff;margin:6px 0}.print-option-image{display:block;max-width:100%;max-height:62px;object-fit:contain;border:1px solid #d8dee9;border-radius:6px;background:#fff;margin-top:4px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:10px;top:10px;z-index:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:10px}.omr-row{display:flex;align-items:center;gap:10px}.omr-qno{min-width:28px;font-weight:700}.omr-bubbles{display:flex;gap:8px}.omr-bubble{width:20px;height:20px;border:1px solid #444;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}.omr-bubble.is-correct{background:#dbeafe;border-color:#1d4ed8}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .header-logo{width:42px;height:42px;top:6px}.compact-mode .question-grid{column-gap:10px}.compact-mode .part-heading{font-size:12px;padding:3px 7px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .print-question-image{max-height:120px;margin:4px 0}.compact-mode .print-option-image{max-height:46px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:18px;height:18px;font-size:10px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.header-logo{position:absolute;top:8px;width:56px;height:56px;object-fit:contain}.header-logo--left{left:8px}.header-logo--right{right:8px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.part-heading{break-inside:avoid;page-break-inside:avoid;font-weight:800;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:4px 8px;margin:0 0 6px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.print-question-image{display:block;max-width:100%;max-height:170px;object-fit:contain;border:1px solid #d8dee9;border-radius:8px;background:#fff;margin:6px 0}.print-option-image{display:block;max-width:100%;max-height:62px;object-fit:contain;border:1px solid #d8dee9;border-radius:6px;background:#fff;margin-top:4px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:10px;top:10px;z-index:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-sheet-head{border:1px solid #e2e8f0;border-radius:10px;background:#fdf2f8;padding:8px 10px;margin-bottom:10px}.omr-grid{display:grid;gap:8px 10px;margin-top:10px}.omr-grid--4col{grid-template-columns:repeat(4,minmax(0,1fr))}.omr-column{border:1px solid #f9a8d4;border-radius:8px;padding:6px;background:#fff}.omr-column-head{text-align:center;font-size:11px;font-weight:700;border-bottom:1px solid #fbcfe8;padding-bottom:4px;margin-bottom:4px;color:#9d174d}.omr-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:1px 0}.omr-qno{min-width:24px;font-weight:700;font-size:11px}.omr-bubbles{display:flex;gap:4px}.omr-bubble{width:16px;height:16px;border:1.2px solid #db2777;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#be185d;background:#fff}.omr-bubble.is-correct{background:#fce7f3;border-color:#9d174d}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .header-logo{width:42px;height:42px;top:6px}.compact-mode .question-grid{column-gap:10px}.compact-mode .part-heading{font-size:12px;padding:3px 7px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .print-question-image{max-height:120px;margin:4px 0}.compact-mode .print-option-image{max-height:46px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:14px;height:14px;font-size:8px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
   }
 
   function getSolutionPublicUrl(examId) {
@@ -2423,25 +2568,26 @@
         const bubbles = Array.from({ length: 10 }, (_, digit) => `<span class="digit-bubble">${digit}</span>`).join('');
         return `<div class="digit-col"><div class="digit-col__write"></div>${bubbles}</div>`;
       }).join('');
-      return `<div class="digit-card"><div class="digit-card__title">${name}</div><div class="digit-card__hint">উপরে ঘরে সংখ্যা লিখুন, পরে নিচে একই সংখ্যা ভরাট করুন</div><div class="digit-cols">${columns}</div></div>`;
+      return `<div class="digit-card"><div class="digit-card__title">${name}</div><div class="digit-card__hint">উপরে ঘরে সংখ্যা লিখুন, পরে নিচে একই সংখ্যা ভরাট করুন</div><div class="digit-cols" style="--digit-count:${digits}">${columns}</div></div>`;
     };
     for (const variant of variants) {
       const { answerKey } = variant;
       const mcqAnswerKey = answerKey.filter((item) => item !== 'CQ');
       const setLabel = variant.setCode;
-      const densityClass = mcqAnswerKey.length > 80 ? 'is-dense-3' : (mcqAnswerKey.length > 50 ? 'is-dense-2' : (mcqAnswerKey.length > 30 ? 'is-dense-1' : ''));
-      const colSize = Math.ceil(mcqAnswerKey.length / 3);
-      const questionRows = `<div class="omr-columns">${Array.from({ length: 3 }, (_, col) => {
+      const densityClass = 'is-dense-3';
+      const totalRows = 100;
+      const colSize = 25;
+      const questionRows = `<div class="omr-columns">${Array.from({ length: 4 }, (_, col) => {
         const columnRows = Array.from({ length: colSize }, (_, row) => {
           const idx = col * colSize + row;
-          if (idx >= mcqAnswerKey.length) return '';
+          if (idx >= totalRows) return '';
           return `<div class="omr-q-row"><span class="qno">${idx + 1}.</span><div class="bubble-group"><span>A</span><span>B</span><span>C</span><span>D</span></div></div>`;
         }).join('');
         return `<div class="omr-col">${columnRows}</div>`;
       }).join('')}</div>`;
       pages.push(`<section class="omr-page ${densityClass}"><div class="timing-mark timing-mark--tl"></div><div class="timing-mark timing-mark--tr"></div><div class="timing-mark timing-mark--bl"></div><div class="timing-mark timing-mark--br"></div><div class="timing-rail"><span></span><span></span><span></span><span></span><span></span></div><header class="board-head board-head--${escapeAttr(config.headerTheme || 'classic')}"><h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span><span><strong>Exam Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(config.paperSubject || exam.subject)} · ${escapeHtml(config.paperDate || exam.examDate)} · ${escapeHtml(config.paperType || exam.examType)}</p></header><div class="omr-warning">উত্তরপত্রে নির্দিষ্ট স্থান ব্যতীত অন্য কোথাও লেখা যাবে না</div><div class="omr-layout"><div class="omr-left"><div class="omr-table-head"><span>প্রশ্ন নম্বর</span><span>উত্তর</span></div><div class="omr-question-grid">${questionRows || '<p>No assigned question found.</p>'}</div></div><div class="omr-right"><div class="id-grid">${buildDigitColumns(6, 'রোল নম্বর')}${buildDigitColumns(8, 'রেজিস্ট্রেশন নম্বর')}</div><div class="set-code-box"><div class="digit-card"><div class="digit-card__title">সেট কোড</div><div class="set-bubbles"><span class="set-bubble ${setLabel === 'A' || setLabel === '1' ? 'is-active' : ''}">A</span><span class="set-bubble ${setLabel === 'B' || setLabel === '2' ? 'is-active' : ''}">B</span><span class="set-bubble ${setLabel === 'C' || setLabel === '3' ? 'is-active' : ''}">C</span><span class="set-bubble ${setLabel === 'D' || setLabel === '4' ? 'is-active' : ''}">D</span></div></div></div><div class="name-card"><div><strong>শিক্ষার্থীর নাম</strong></div><div class="line"></div><div><strong>ফোন নম্বর</strong></div><div class="line"></div><div><strong>শিক্ষার্থীর স্বাক্ষর</strong></div><div class="line"></div></div></div></div><div class="omr-note"><strong>নির্দেশাবলী:</strong> কালো বল পয়েন্ট কলম দিয়ে বৃত্ত সম্পূর্ণ ভরাট করুন।</div></section>`);
     }
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)} OMR</title><style>@page{size:A4 portrait;margin:6mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;color:#111;padding:8px;background:#fff}.omr-page{width:198mm;height:285mm;max-width:198mm;margin:0 auto 8px auto;border:2px solid #111;padding:8px 10px;box-sizing:border-box;page-break-after:always;page-break-inside:avoid;break-inside:avoid;overflow:hidden;position:relative}.omr-page:last-child{page-break-after:auto}.timing-mark{position:absolute;width:11mm;height:11mm;background:#000;z-index:3}.timing-mark--tl{left:4mm;top:4mm}.timing-mark--tr{right:4mm;top:4mm}.timing-mark--bl{left:4mm;bottom:4mm}.timing-mark--br{right:4mm;bottom:4mm}.timing-rail{position:absolute;left:4mm;top:24mm;bottom:24mm;display:flex;flex-direction:column;justify-content:space-between;z-index:3}.timing-rail span{width:8mm;height:8mm;background:#000;display:block}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}.board-head h1{margin:0;font-size:24px}.board-head h2{margin:2px 0 6px 0;font-size:18px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0}.omr-warning{text-align:center;border:2px solid #111;background:#fff0fb;color:#861657;font-weight:700;font-size:13px;padding:6px;margin:10px 0}.omr-layout{display:grid;grid-template-columns:1.5fr 1fr;gap:12px}.omr-left{border:1px solid #e879c4;padding:8px;background:#fff9fd}.omr-table-head{display:grid;grid-template-columns:88px 1fr;font-weight:700;font-size:13px;background:#ffd6f1;border:1px solid #e879c4;padding:4px 6px;margin-bottom:6px}.omr-question-grid{display:block}.omr-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 8px}.omr-col{display:grid;gap:4px}.omr-q-row{display:flex;align-items:center;gap:8px;border:1px solid #f3b0dc;background:#fff;padding:2px 3px}.qno{min-width:22px;font-weight:700}.bubble-group{display:flex;gap:5px}.bubble-group span{width:14px;height:14px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:#9d174d}.omr-right{display:flex;flex-direction:column;gap:8px}.id-grid{display:grid;grid-template-columns:1fr;gap:8px}.digit-card{border:1px solid #e879c4;background:#fff9fd;padding:6px}.digit-card__title{font-weight:700;font-size:12px;text-align:center;margin-bottom:2px}.digit-card__hint{text-align:center;font-size:10px;color:#7a1e4f;margin-bottom:4px}.digit-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:4px}.digit-col{display:flex;flex-direction:column;align-items:center;gap:2px}.digit-col__write{width:17px;height:17px;border:1px solid #7a1e4f;background:#fff}.digit-bubble{width:17px;height:17px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#9d174d}.set-code-box .set-bubbles{display:flex;justify-content:center;gap:8px;padding:2px 0}.set-bubble{width:20px;height:20px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.set-bubble.is-active{background:#c02686;color:#fff}.name-card{border:1px solid #e879c4;background:#fff;padding:8px;display:grid;grid-template-columns:1fr;gap:6px;font-size:12px}.line{border-bottom:1px solid #444;height:16px}.omr-note{margin-top:8px;font-size:12px;border-top:1px dashed #999;padding-top:6px}.omr-page.is-dense-1 .omr-columns{gap:4px 6px}.omr-page.is-dense-2 .bubble-group span{width:14px;height:14px;font-size:8px}.omr-page.is-dense-2 .qno{min-width:16px;font-size:10px}.omr-page.is-dense-3 .omr-layout{grid-template-columns:1.7fr 1fr;gap:8px}.omr-page.is-dense-3 .omr-columns{gap:3px 5px}.omr-page.is-dense-3 .omr-q-row{gap:3px;padding:1px 2px}.omr-page.is-dense-3 .bubble-group{gap:2px}.omr-page.is-dense-3 .bubble-group span{width:12px;height:12px;font-size:7px}.omr-page.is-dense-3 .qno{min-width:12px;font-size:9px}.omr-page.is-dense-3 .board-head h1{font-size:18px}.omr-page.is-dense-3 .board-head h2{font-size:13px}@media print{body{padding:0}}</style></head><body>${pages.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)} OMR</title><style>@page{size:A4 portrait;margin:6mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;color:#111;padding:8px;background:#fff}.omr-page{width:198mm;height:285mm;max-width:198mm;margin:0 auto 8px auto;border:2px solid #111;padding:8px 14mm 8px 14mm;box-sizing:border-box;page-break-after:always;page-break-inside:avoid;break-inside:avoid;overflow:hidden;position:relative}.omr-page:last-child{page-break-after:auto}.timing-mark{position:absolute;width:11mm;height:11mm;background:#000;z-index:3}.timing-mark--tl{left:0.8mm;top:0.8mm}.timing-mark--tr{right:0.8mm;top:0.8mm}.timing-mark--bl{left:0.8mm;bottom:0.8mm}.timing-mark--br{right:0.8mm;bottom:0.8mm}.timing-rail{position:absolute;left:0.8mm;top:24mm;bottom:24mm;display:flex;flex-direction:column;justify-content:space-between;z-index:3}.timing-rail span{width:8mm;height:8mm;background:#000;display:block}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}.board-head h1{margin:0;font-size:24px}.board-head h2{margin:2px 0 6px 0;font-size:18px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0}.omr-warning{text-align:center;border:2px solid #111;background:#fff0fb;color:#861657;font-weight:700;font-size:13px;padding:6px;margin:10px 0}.omr-layout{display:grid;grid-template-columns:1.5fr 1fr;gap:10px;align-items:start}.omr-left{border:1px solid #e879c4;padding:8px;background:#fff9fd}.omr-table-head{display:grid;grid-template-columns:88px 1fr;font-weight:700;font-size:13px;background:#ffd6f1;border:1px solid #e879c4;padding:4px 6px;margin-bottom:6px}.omr-question-grid{display:block}.omr-columns{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px 6px}.omr-col{display:grid;gap:4px}.omr-q-row{display:flex;align-items:center;gap:5px;border:1px solid #f3b0dc;background:#fff;padding:1px 2px}.qno{min-width:14px;font-weight:700;font-size:10px}.bubble-group{display:flex;gap:2px}.bubble-group span{width:11px;height:11px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:7px;color:#9d174d}.omr-right{display:flex;flex-direction:column;gap:6px}.id-grid{display:grid;grid-template-columns:1fr;gap:6px}.digit-card{border:1px solid #e879c4;background:#fff9fd;padding:5px}.digit-card__title{font-weight:700;font-size:12px;text-align:center;margin-bottom:1px}.digit-card__hint{text-align:center;font-size:9px;color:#7a1e4f;margin-bottom:3px}.digit-cols{display:grid;grid-template-columns:repeat(var(--digit-count),minmax(0,1fr));gap:3px}.digit-col{display:flex;flex-direction:column;align-items:center;gap:1px}.digit-col__write{width:15px;height:15px;border:1px solid #7a1e4f;background:#fff}.digit-bubble{width:15px;height:15px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#9d174d}.set-code-box .set-bubbles{display:flex;justify-content:center;gap:8px;padding:2px 0}.set-bubble{width:20px;height:20px;border:1px solid #c02686;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:#9d174d}.set-bubble.is-active{background:#c02686;color:#fff}.name-card{border:1px solid #e879c4;background:#fff;padding:6px;display:grid;grid-template-columns:1fr;gap:4px;font-size:11px}.line{border-bottom:1px solid #444;height:12px}.omr-note{margin-top:6px;font-size:11px;border-top:1px dashed #999;padding-top:5px}.omr-page.is-dense-1 .omr-columns{gap:4px 6px}.omr-page.is-dense-2 .bubble-group span{width:14px;height:14px;font-size:8px}.omr-page.is-dense-2 .qno{min-width:16px;font-size:10px}.omr-page.is-dense-3 .omr-layout{grid-template-columns:1.7fr 1fr;gap:7px}.omr-page.is-dense-3 .omr-columns{gap:3px 5px}.omr-page.is-dense-3 .omr-q-row{gap:3px;padding:1px 2px}.omr-page.is-dense-3 .bubble-group{gap:2px}.omr-page.is-dense-3 .bubble-group span{width:11px;height:11px;font-size:7px}.omr-page.is-dense-3 .qno{min-width:12px;font-size:9px}.omr-page.is-dense-3 .board-head h1{font-size:18px}.omr-page.is-dense-3 .board-head h2{font-size:13px}@media print{body{padding:0}}</style></head><body>${pages.join('')}</body></html>`;
   }
 
   function printOmrSheet(examId) {
@@ -2850,7 +2996,7 @@
     const questionsMarkup = targetSet.setQuestions.map((question, index) => {
       const displaySubject = question.subject || exam.subject || '';
       if (question.type !== 'mcq') {
-        const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${item.answer ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer, { subject: displaySubject })}</div>` : ''}</div>`).join('');
+        const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${item.answer ? `<div class="answer-block"><strong>Answer:</strong> ${formatExplanationForDisplay(item.answer, { subject: displaySubject })}</div>` : ''}</div>`).join('');
         const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
         return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${subs || '<p class="muted-copy">CQ / written answer.</p>'}${explanation}</article>`;
       }
