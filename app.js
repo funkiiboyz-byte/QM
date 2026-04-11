@@ -344,35 +344,44 @@
     renderExamSummary();
   }
 
-  function bindCurriculumSelectors(ids, syncCourse = false) {
+  function bindCurriculumSelectors(ids, syncCourse = false, includeAll = true) {
     const level = document.getElementById(ids.level);
     const group = document.getElementById(ids.group);
     const subject = document.getElementById(ids.subject);
     const topic = ids.topic ? document.getElementById(ids.topic) : null;
     if (!level || !group || !subject) return;
 
+    const withAll = (items) => includeAll ? ['<option value="">All</option>'].concat(items.map((item) => `<option value="${item}">${item}</option>`)).join('') : items.map((item) => `<option value="${item}">${item}</option>`).join('');
     const renderGroups = () => {
-      level.innerHTML = Object.keys(CURRICULUM).map((key) => `<option value="${key}">${key}</option>`).join('');
+      level.innerHTML = withAll(Object.keys(CURRICULUM));
       updateGroups();
     };
 
     const updateGroups = () => {
-      const groups = Object.keys(CURRICULUM[level.value] || {});
-      group.innerHTML = groups.map((key) => `<option value="${key}">${key}</option>`).join('');
+      const groups = level.value ? Object.keys(CURRICULUM[level.value] || {}) : [...new Set(Object.values(CURRICULUM).flatMap((item) => Object.keys(item || {})))];
+      group.innerHTML = withAll(groups);
       updateSubjects();
     };
 
     const updateSubjects = () => {
-      const subjects = Object.keys(CURRICULUM[level.value]?.[group.value] || {});
-      subject.innerHTML = subjects.map((key) => `<option value="${key}">${key}</option>`).join('');
+      const subjects = level.value && group.value
+        ? Object.keys(CURRICULUM[level.value]?.[group.value] || {})
+        : level.value
+          ? [...new Set(Object.values(CURRICULUM[level.value] || {}).flatMap((item) => Object.keys(item || {})))]
+          : [...new Set(Object.values(CURRICULUM).flatMap((lvl) => Object.values(lvl || {}).flatMap((grp) => Object.keys(grp || {}))))];
+      subject.innerHTML = withAll(subjects);
       updateTopics();
       if (syncCourse && document.getElementById('examCourse')) document.getElementById('examCourse').value = `${level.value} ${subject.value}`;
     };
 
     const updateTopics = () => {
       if (!topic) return;
-      const topics = CURRICULUM[level.value]?.[group.value]?.[subject.value] || [];
-      topic.innerHTML = topics.map((item) => `<option value="${item}">${item}</option>`).join('');
+      const topics = level.value && group.value && subject.value
+        ? CURRICULUM[level.value]?.[group.value]?.[subject.value] || []
+        : level.value && group.value
+          ? [...new Set(Object.values(CURRICULUM[level.value]?.[group.value] || {}).flat())]
+          : [...new Set(Object.values(CURRICULUM).flatMap((lvl) => Object.values(lvl || {}).flatMap((grp) => Object.values(grp || {}).flat())))];
+      topic.innerHTML = withAll(topics);
     };
 
     level.addEventListener('change', updateGroups);
@@ -520,6 +529,17 @@
       });
       renderQuestions();
     });
+    document.getElementById('qDeleteFilteredBtn')?.addEventListener('click', () => {
+      const matches = getFilteredQuestionList(getQuestionListFilters());
+      if (!matches.length) return showToast('Delete করার মতো filtered question নেই।', 'error');
+      if (!window.confirm(`আপনি নিশ্চিত? ${matches.length}টি question permanently delete হবে.`)) return;
+      const ids = new Set(matches.map((item) => item.id));
+      state.questions = state.questions.filter((item) => !ids.has(item.id));
+      state.exams.forEach((exam) => { exam.questionIds = exam.questionIds.filter((id) => !ids.has(id)); });
+      saveState();
+      renderQuestions();
+      showToast(`${matches.length}টি question delete হয়েছে।`);
+    });
     renderQuestions();
     const query = new URLSearchParams(window.location.search);
     const queryExamId = query.get('examId') || '';
@@ -560,7 +580,7 @@
     const languageInstruction = payload.version === 'English'
       ? 'All question text, options, and answers MUST be in English only.'
       : 'সব question text, option, answer এবং explanation অবশ্যই শুদ্ধ বাংলায় হবে।';
-    document.getElementById('jsonPromptText').value = `Generate strictly valid JSON for direct import into a Question Bank.\nReturn JSON only. No markdown, no comments, no code fences.\nHard constraints:\n1) Use exactly one root key: {"questions":[ ... ]}\n2) Every object must include: type, level, group, subject, topic, version\n3) version must be exactly "${payload.version}"\n4) ${languageInstruction}\n5) Do not leave empty strings.\n6) Keep curriculum aligned with:\n   level="${payload.level}", group="${payload.group}", subject="${payload.subject}", topic="${payload.topic}"\n7) Difficulty target: "${payload.difficulty}"\n\nIf questionType is MCQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "question": "single clear stem",\n      "options": ["opt A", "opt B", "opt C", "opt D"],\n      "answer": "A",\n      "explanation": "4-6 short lines with \\\\n separators"\n    }\n  ]\n}\n\nIf questionType is CQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "stimulus": "clear passage/context",\n      "subQuestions": [\n        { "label": "A", "prompt": "part A prompt", "answer": "accurate answer A" },\n        { "label": "B", "prompt": "part B prompt", "answer": "accurate answer B" },\n        { "label": "C", "prompt": "part C prompt", "answer": "accurate answer C" }\n      ]\n    }\n  ]\n}\n\nValidation before final output:\n- JSON parses without error\n- MCQ has exactly 4 options\n- answer must be one of A/B/C/D\n- CQ must include at least 2 subQuestions with non-empty prompt+answer`;
+    document.getElementById('jsonPromptText').value = `Generate strictly valid JSON for direct import into a Question Bank.\nReturn JSON only. No markdown, no comments, no code fences.\nHard constraints:\n1) Use exactly one root key: {"questions":[ ... ]}\n2) Every object must include: type, level, group, subject, topic, version\n3) version must be exactly "${payload.version}"\n4) ${languageInstruction}\n5) Do not leave empty strings.\n6) Keep curriculum aligned with:\n   level="${payload.level}", group="${payload.group}", subject="${payload.subject}", topic="${payload.topic}"\n7) Difficulty target: "${payload.difficulty}"\n8) For multiline text use literal \\\\n in JSON (especially CQ answers/explanations)\n\nIf questionType is MCQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "question": "single clear stem",\n      "options": ["opt A", "opt B", "opt C", "opt D"],\n      "answer": "A",\n      "explanation": "4-6 short lines with \\\\n separators"\n    }\n  ]\n}\n\nIf questionType is CQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "stimulus": "clear passage/context",\n      "subQuestions": [\n        { "label": "A", "prompt": "part A prompt", "answer": "accurate answer A\\\\nsecond line if needed" },\n        { "label": "B", "prompt": "part B prompt", "answer": "accurate answer B\\\\nsecond line if needed" },\n        { "label": "C", "prompt": "part C prompt", "answer": "accurate answer C\\\\nsecond line if needed" }\n      ]\n    }\n  ]\n}\n\nValidation before final output:\n- JSON parses without error\n- MCQ has exactly 4 options\n- answer must be one of A/B/C/D\n- CQ must include at least 2 subQuestions with non-empty prompt+answer`;
     showToast('Curriculum prompt generated.');
   }
 
@@ -1049,7 +1069,34 @@
     const target = document.getElementById('questionList');
     if (!target) return;
     if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
-    const filters = {
+    const filters = getQuestionListFilters();
+    const filtered = getFilteredQuestionList(filters);
+    if (!filtered.length) {
+      target.innerHTML = emptyState('No saved question matched current filters.');
+      return;
+    }
+    target.innerHTML = filtered.map((question) => {
+      const type = String(question.type || 'mcq').toLowerCase();
+      const meta = `${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.subject || '')} · ${escapeHtml(question.topic || '')} · ${escapeHtml(question.version || 'Bangla')}`;
+      const body = type === 'cq'
+        ? `<div><p>${formatMathForDisplay(question.stimulus || question.question || 'CQ question')}</p><ul>${(question.subQuestions || []).map((item) => `<li><strong>${escapeHtml(item.label || '')}${item.label ? '.' : ''}</strong> ${formatMathForDisplay(item.prompt || '')}<br/><span class="muted-copy">Answer: ${formatExplanationForDisplay(item.answer || '')}</span></li>`).join('') || '<li>No sub-question found.</li>'}</ul></div>`
+        : `<div><p>${formatMathForDisplay(question.question || 'MCQ question')}</p><ul>${(question.options || []).map((opt, index) => `<li>${String.fromCharCode(65 + index)}. ${formatMathForDisplay(opt || '')}${index === Number(question.correct || 0) ? ' <strong>(Correct)</strong>' : ''}</li>`).join('') || '<li>No option found.</li>'}</ul>${question.explanation ? `<p class="muted-copy"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation)}</p>` : ''}</div>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(type.toUpperCase())}</h4><p class="muted-copy">${meta}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div>${body}</article>`;
+    }).join('');
+    target.querySelectorAll('[data-edit-question]').forEach((button) => button.addEventListener('click', () => startQuestionEdit(button.dataset.editQuestion)));
+    target.querySelectorAll('[data-delete-question]').forEach((button) => button.addEventListener('click', () => {
+      state.questions = state.questions.filter((item) => item.id !== button.dataset.deleteQuestion);
+      state.exams.forEach((exam) => exam.questionIds = exam.questionIds.filter((id) => id !== button.dataset.deleteQuestion));
+      saveState();
+      if (editingQuestionId === button.dataset.deleteQuestion) clearQuestionEditingState();
+      renderQuestions();
+      updateQuestionPreview();
+      showToast('Question deleted.');
+    }));
+  }
+
+  function getQuestionListFilters() {
+    return {
       level: document.getElementById('qFilterLevel')?.value || '',
       group: document.getElementById('qFilterGroup')?.value || '',
       subject: document.getElementById('qFilterSubject')?.value || '',
@@ -1058,12 +1105,15 @@
       type: (document.getElementById('qFilterType')?.value || '').toLowerCase(),
       query: (document.getElementById('qFilterSearch')?.value || '').trim().toLowerCase(),
     };
+  }
+
+  function getFilteredQuestionList(filters = getQuestionListFilters()) {
     const ordered = [...state.questions].sort((a, b) => {
       const importedDiff = new Date(b.importedAt || 0).getTime() - new Date(a.importedAt || 0).getTime();
       if (importedDiff !== 0) return importedDiff;
       return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     });
-    const filtered = ordered.filter((question) => {
+    return ordered.filter((question) => {
       if (filters.level && question.level !== filters.level) return false;
       if (filters.group && question.group !== filters.group) return false;
       if (filters.subject && question.subject !== filters.subject) return false;
@@ -1078,28 +1128,6 @@
       ].map((item) => String(item || '').toLowerCase());
       return queryBag.some((item) => item.includes(filters.query));
     });
-    if (!filtered.length) {
-      target.innerHTML = emptyState('No saved question matched current filters.');
-      return;
-    }
-    target.innerHTML = filtered.map((question) => {
-      const type = String(question.type || 'mcq').toLowerCase();
-      const meta = `${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.subject || '')} · ${escapeHtml(question.topic || '')} · ${escapeHtml(question.version || 'Bangla')}`;
-      const body = type === 'cq'
-        ? `<div><p>${formatMathForDisplay(question.stimulus || question.question || 'CQ question')}</p><ul>${(question.subQuestions || []).map((item) => `<li><strong>${escapeHtml(item.label || '')}${item.label ? '.' : ''}</strong> ${formatMathForDisplay(item.prompt || '')}<br/><span class="muted-copy">Answer: ${formatMathForDisplay(item.answer || '')}</span></li>`).join('') || '<li>No sub-question found.</li>'}</ul></div>`
-        : `<div><p>${formatMathForDisplay(question.question || 'MCQ question')}</p><ul>${(question.options || []).map((opt, index) => `<li>${String.fromCharCode(65 + index)}. ${formatMathForDisplay(opt || '')}${index === Number(question.correct || 0) ? ' <strong>(Correct)</strong>' : ''}</li>`).join('') || '<li>No option found.</li>'}</ul>${question.explanation ? `<p class="muted-copy"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation)}</p>` : ''}</div>`;
-      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(type.toUpperCase())}</h4><p class="muted-copy">${meta}</p></div><div class="entity-actions"><button class="toolbar-button" data-edit-question="${question.id}">Edit</button><button class="toolbar-button toolbar-button--danger" data-delete-question="${question.id}">Delete</button></div></div>${body}</article>`;
-    }).join('');
-    target.querySelectorAll('[data-edit-question]').forEach((button) => button.addEventListener('click', () => startQuestionEdit(button.dataset.editQuestion)));
-    target.querySelectorAll('[data-delete-question]').forEach((button) => button.addEventListener('click', () => {
-      state.questions = state.questions.filter((item) => item.id !== button.dataset.deleteQuestion);
-      state.exams.forEach((exam) => exam.questionIds = exam.questionIds.filter((id) => id !== button.dataset.deleteQuestion));
-      saveState();
-      if (editingQuestionId === button.dataset.deleteQuestion) clearQuestionEditingState();
-      renderQuestions();
-      updateQuestionPreview();
-      showToast('Question deleted.');
-    }));
   }
 
   function clearQuestionEditingState() {
@@ -1180,7 +1208,7 @@
       const blocks = normalized.map((question, index) => {
         const displaySubject = question.subject || defaults.subject || '';
         if (question.type === 'cq') {
-          const subs = (question.subQuestions || []).map((sub) => `<li><strong>${escapeHtml(sub.label || '')}.</strong> ${formatMathForDisplay(sub.prompt || '', { subject: displaySubject })}<br/><span class="muted-copy">Answer: ${formatMathForDisplay(sub.answer || '', { subject: displaySubject })}</span></li>`).join('');
+          const subs = (question.subQuestions || []).map((sub) => `<li><strong>${escapeHtml(sub.label || '')}.</strong> ${formatMathForDisplay(sub.prompt || '', { subject: displaySubject })}<br/><span class="muted-copy">Answer: ${formatExplanationForDisplay(sub.answer || '', { subject: displaySubject })}</span></li>`).join('');
           return `<div class="preview-sub"><strong>Q${index + 1}. ${formatMathForDisplay(question.stimulus || '', { subject: displaySubject })}</strong>${question.image ? `<img class="preview-image" src="${question.image}" alt="CQ" />` : ''}<ul>${subs || '<li>No sub-questions found.</li>'}</ul></div>`;
         }
         const options = (question.options || []).map((option, optionIndex) => {
@@ -2310,7 +2338,7 @@
           : '';
         currentSection = question.section || currentSection;
         const questionBody = question.type === 'cq'
-          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
+          ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatExplanationForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
           : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span>${(question.optionImages || [])[optionIndex] ? `<div><img class="print-option-image" src="${(question.optionImages || [])[optionIndex]}" alt="Option ${optionIndex + 1}" /></div>` : ''}</li>`).join('')}</ul>${showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '', { subject: displaySubject })}</p>` : ''}`;
         const explanation = showExplanation && question.explanation ? `<p class="explanation-block"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
         return `${sectionHeading}<article class="print-question"><h3>${number}. ${formatMathForDisplay(title, { subject: displaySubject })}</h3>${imageBlock}${questionBody}${explanation}</article>`;
@@ -2968,7 +2996,7 @@
     const questionsMarkup = targetSet.setQuestions.map((question, index) => {
       const displaySubject = question.subject || exam.subject || '';
       if (question.type !== 'mcq') {
-        const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${item.answer ? `<div class="answer-block"><strong>Answer:</strong> ${formatMathForDisplay(item.answer, { subject: displaySubject })}</div>` : ''}</div>`).join('');
+        const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${item.answer ? `<div class="answer-block"><strong>Answer:</strong> ${formatExplanationForDisplay(item.answer, { subject: displaySubject })}</div>` : ''}</div>`).join('');
         const explanation = question.explanation ? `<p class="solution-legend"><strong>Explanation:</strong> ${formatExplanationForDisplay(question.explanation, { subject: displaySubject })}</p>` : '';
         return `<article class="print-question"><h3>${index + 1}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${subs || '<p class="muted-copy">CQ / written answer.</p>'}${explanation}</article>`;
       }

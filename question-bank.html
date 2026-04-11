@@ -69,6 +69,7 @@
 </select>
 </label>
 <label>Question Type<select id="promptQuestionType">
+<option value="All">All</option>
 <option value="MCQ">MCQ</option>
 <option value="CQ">CQ</option>
 </select>
@@ -182,6 +183,7 @@
 <label>Search<input id="qFilterSearch" type="search" placeholder="Search question / option / answer" /></label>
 <div class="full-span app-form__actions">
 <button id="qFilterResetBtn" type="button" class="toolbar-button">Reset Filters</button>
+<button id="qDeleteFilteredBtn" type="button" class="toolbar-button toolbar-button--danger">Delete Filtered</button>
 </div>
 </form>
 <div id="questionList" class="entity-list">
