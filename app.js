@@ -813,11 +813,15 @@
               ? payload.result.questions
               : Array.isArray(payload.output)
                 ? payload.output
-          : payload.question
-            ? [payload.question]
-            : payload.questions === undefined && typeof payload === 'object'
-              ? [payload]
-              : [];
+                : Array.isArray(payload.mcq)
+                  ? payload.mcq
+                  : Array.isArray(payload.items)
+                    ? payload.items
+                    : payload.question
+                      ? [payload.question]
+                      : payload.questions === undefined && typeof payload === 'object'
+                        ? [payload]
+                        : [];
       if (!items.length) throw new Error('No valid question payload found.');
 
       const summary = { imported: 0, skipped: 0 };
@@ -932,7 +936,16 @@
     const type = String(question.type || (question.stimulus ? 'cq' : 'mcq')).toLowerCase();
     const partLabel = String(question.part || question.section || (meta.partWise ? (meta.defaultPart || subject || topic || '') : '')).trim();
     if (type === 'cq') {
-      const subQuestions = Array.isArray(question.subQuestions) ? question.subQuestions.filter((item) => item && (item.prompt || item.answer || item.label)) : [];
+      const rawSubQuestions = Array.isArray(question.subQuestions)
+        ? question.subQuestions
+        : Array.isArray(question.sub_questions)
+          ? question.sub_questions
+          : Array.isArray(question.parts)
+            ? question.parts
+            : Array.isArray(question.questions)
+              ? question.questions
+              : [];
+      const subQuestions = rawSubQuestions.filter((item) => item && (item.prompt || item.question || item.answer || item.modelAnswer || item.label || item.part));
       const stimulus = String(question.stimulus || question.question || '').trim();
       if (!stimulus && !subQuestions.length) return null;
       return {
@@ -947,9 +960,9 @@
         partTagged: !!meta.partWise,
         stimulus,
         subQuestions: subQuestions.map((item, index) => ({
-          label: String(item.label || String.fromCharCode(65 + index)).trim(),
-          prompt: String(item.prompt || '').trim(),
-          answer: String(item.answer || '').trim(),
+          label: String(item.label || item.part || String.fromCharCode(65 + index)).trim(),
+          prompt: String(item.prompt || item.question || '').trim(),
+          answer: String(item.answer || item.modelAnswer || item.sampleAnswer || '').trim(),
         })),
         image: question.image || '',
         createdAt: new Date().toISOString(),
@@ -957,15 +970,26 @@
       };
     }
 
-    const options = Array.isArray(question.options)
-      ? question.options.map((option) => (typeof option === 'string' ? option : option?.text || '')).map((option) => String(option).trim()).filter(Boolean)
+    const rawOptions = Array.isArray(question.options)
+      ? question.options
+      : question.options && typeof question.options === 'object'
+        ? Object.keys(question.options)
+          .sort()
+          .map((key) => question.options[key])
+        : [];
+    const options = rawOptions.length
+      ? rawOptions.map((option) => (typeof option === 'string' ? option : option?.text || option?.option || '')).map((option) => String(option).trim()).filter(Boolean)
       : [question.optionA, question.optionB, question.optionC, question.optionD].map((option) => String(option || '').trim()).filter(Boolean);
     const finalOptions = options.length
       ? options
       : [];
     const text = String(question.question || question.stem || '').trim();
     if (!text || !finalOptions.length) return null;
-    const correct = normalizeCorrectIndex(question.correct, question.answer, finalOptions);
+    const correct = normalizeCorrectIndex(
+      question.correct,
+      question.answer || question.correctAnswer || question.correct_option || question.correctOption || question.ans,
+      finalOptions,
+    );
     const optionImages = Array.isArray(question.optionImages) ? question.optionImages.map((item) => String(item || '')) : [];
     return {
       id: uid('question'),
