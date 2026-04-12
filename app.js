@@ -854,6 +854,94 @@
   function parseJsonImportPayload(raw) {
     const normalizeUnsafeBackslashes = (text) => String(text || '').replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
     const normalizeEscapedLayout = (text) => String(text || '').replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+    const repairUnescapedInnerQuotes = (text) => {
+      const input = String(text || '');
+      let out = '';
+      let inString = false;
+      let escaped = false;
+      for (let i = 0; i < input.length; i += 1) {
+        const ch = input[i];
+        if (!inString) {
+          if (ch === '"') inString = true;
+          out += ch;
+          escaped = false;
+          continue;
+        }
+        if (escaped) {
+          out += ch;
+          escaped = false;
+          continue;
+        }
+        if (ch === '\\') {
+          out += ch;
+          escaped = true;
+          continue;
+        }
+        if (ch === '"') {
+          const tail = input.slice(i + 1);
+          const nextNonWs = (tail.match(/\S/) || [''])[0];
+          const isCloser = !nextNonWs || [',', '}', ']', ':'].includes(nextNonWs);
+          if (isCloser) {
+            inString = false;
+            out += ch;
+          } else {
+            out += '\\"';
+          }
+          continue;
+        }
+        out += ch;
+      }
+      return out;
+    };
+    const collectQuestions = (value) => {
+      if (!value || typeof value !== 'object') return [];
+      if (Array.isArray(value)) return value;
+      if (Array.isArray(value.questions)) return value.questions;
+      if (Array.isArray(value.data?.questions)) return value.data.questions;
+      if (Array.isArray(value.result?.questions)) return value.result.questions;
+      if (Array.isArray(value.output)) return value.output;
+      if (Array.isArray(value.mcq)) return value.mcq;
+      if (Array.isArray(value.items)) return value.items;
+      if (value.question && typeof value.question === 'object') return [value.question];
+      return [];
+    };
+    const parseConcatenatedJson = (text) => {
+      const source = String(text || '').trim();
+      if (!source) return null;
+      const blocks = [];
+      let depth = 0;
+      let start = -1;
+      let inString = false;
+      let escaped = false;
+      for (let i = 0; i < source.length; i += 1) {
+        const ch = source[i];
+        if (inString) {
+          if (escaped) escaped = false;
+          else if (ch === '\\') escaped = true;
+          else if (ch === '"') inString = false;
+          continue;
+        }
+        if (ch === '"') {
+          inString = true;
+          continue;
+        }
+        if (ch === '{' || ch === '[') {
+          if (depth === 0) start = i;
+          depth += 1;
+        } else if (ch === '}' || ch === ']') {
+          depth -= 1;
+          if (depth === 0 && start >= 0) {
+            blocks.push(source.slice(start, i + 1));
+            start = -1;
+          }
+        }
+      }
+      if (blocks.length < 2) return null;
+      const parsed = blocks.map((chunk) => JSON.parse(chunk));
+      const mergedQuestions = parsed.flatMap((item) => collectQuestions(item));
+      if (mergedQuestions.length) return { questions: mergedQuestions };
+      return parsed[0];
+    };
     const unwrap = (value) => {
       if (value && typeof value === 'object' && typeof value.response === 'string') return value.response.trim();
       if (value && typeof value === 'object' && typeof value.output_text === 'string') return value.output_text.trim();
@@ -886,11 +974,18 @@
           try {
             return JSON.parse(normalized);
           } catch {
-            const startObject = normalized.indexOf('{');
-            const startArray = normalized.indexOf('[');
+            const repairedQuotes = repairUnescapedInnerQuotes(normalized);
+            try {
+              return JSON.parse(repairedQuotes);
+            } catch {
+              const multi = parseConcatenatedJson(repairedQuotes);
+              if (multi) return multi;
+            }
+            const startObject = repairedQuotes.indexOf('{');
+            const startArray = repairedQuotes.indexOf('[');
             const start = startArray >= 0 && (startArray < startObject || startObject < 0) ? startArray : startObject;
-            const end = Math.max(normalized.lastIndexOf('}'), normalized.lastIndexOf(']'));
-            if (start >= 0 && end > start) return JSON.parse(normalized.slice(start, end + 1));
+            const end = Math.max(repairedQuotes.lastIndexOf('}'), repairedQuotes.lastIndexOf(']'));
+            if (start >= 0 && end > start) return JSON.parse(repairedQuotes.slice(start, end + 1));
             throw new Error('Invalid JSON format.');
           }
         }
