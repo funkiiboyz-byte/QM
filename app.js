@@ -428,6 +428,8 @@
       endTime: document.getElementById('examEndTime').value,
       sections,
       questionIds: existing?.questionIds || [],
+      setQuestionMap: existing?.setQuestionMap || {},
+      uniqueSetGeneration: !!existing?.uniqueSetGeneration,
       published: existing?.published || false,
       createdAt: existing?.createdAt || new Date().toISOString(),
     };
@@ -813,11 +815,15 @@
               ? payload.result.questions
               : Array.isArray(payload.output)
                 ? payload.output
-          : payload.question
-            ? [payload.question]
-            : payload.questions === undefined && typeof payload === 'object'
-              ? [payload]
-              : [];
+                : Array.isArray(payload.mcq)
+                  ? payload.mcq
+                  : Array.isArray(payload.items)
+                    ? payload.items
+                    : payload.question
+                      ? [payload.question]
+                      : payload.questions === undefined && typeof payload === 'object'
+                        ? [payload]
+                        : [];
       if (!items.length) throw new Error('No valid question payload found.');
 
       const summary = { imported: 0, skipped: 0 };
@@ -932,7 +938,16 @@
     const type = String(question.type || (question.stimulus ? 'cq' : 'mcq')).toLowerCase();
     const partLabel = String(question.part || question.section || (meta.partWise ? (meta.defaultPart || subject || topic || '') : '')).trim();
     if (type === 'cq') {
-      const subQuestions = Array.isArray(question.subQuestions) ? question.subQuestions.filter((item) => item && (item.prompt || item.answer || item.label)) : [];
+      const rawSubQuestions = Array.isArray(question.subQuestions)
+        ? question.subQuestions
+        : Array.isArray(question.sub_questions)
+          ? question.sub_questions
+          : Array.isArray(question.parts)
+            ? question.parts
+            : Array.isArray(question.questions)
+              ? question.questions
+              : [];
+      const subQuestions = rawSubQuestions.filter((item) => item && (item.prompt || item.question || item.answer || item.modelAnswer || item.label || item.part));
       const stimulus = String(question.stimulus || question.question || '').trim();
       if (!stimulus && !subQuestions.length) return null;
       return {
@@ -947,9 +962,9 @@
         partTagged: !!meta.partWise,
         stimulus,
         subQuestions: subQuestions.map((item, index) => ({
-          label: String(item.label || String.fromCharCode(65 + index)).trim(),
-          prompt: String(item.prompt || '').trim(),
-          answer: String(item.answer || '').trim(),
+          label: String(item.label || item.part || String.fromCharCode(65 + index)).trim(),
+          prompt: String(item.prompt || item.question || '').trim(),
+          answer: String(item.answer || item.modelAnswer || item.sampleAnswer || '').trim(),
         })),
         image: question.image || '',
         createdAt: new Date().toISOString(),
@@ -957,15 +972,26 @@
       };
     }
 
-    const options = Array.isArray(question.options)
-      ? question.options.map((option) => (typeof option === 'string' ? option : option?.text || '')).map((option) => String(option).trim()).filter(Boolean)
+    const rawOptions = Array.isArray(question.options)
+      ? question.options
+      : question.options && typeof question.options === 'object'
+        ? Object.keys(question.options)
+          .sort()
+          .map((key) => question.options[key])
+        : [];
+    const options = rawOptions.length
+      ? rawOptions.map((option) => (typeof option === 'string' ? option : option?.text || option?.option || '')).map((option) => String(option).trim()).filter(Boolean)
       : [question.optionA, question.optionB, question.optionC, question.optionD].map((option) => String(option || '').trim()).filter(Boolean);
     const finalOptions = options.length
       ? options
       : [];
     const text = String(question.question || question.stem || '').trim();
     if (!text || !finalOptions.length) return null;
-    const correct = normalizeCorrectIndex(question.correct, question.answer, finalOptions);
+    const correct = normalizeCorrectIndex(
+      question.correct,
+      question.answer || question.correctAnswer || question.correct_option || question.correctOption || question.ans,
+      finalOptions,
+    );
     const optionImages = Array.isArray(question.optionImages) ? question.optionImages.map((item) => String(item || '')) : [];
     return {
       id: uid('question'),
@@ -1503,7 +1529,7 @@
         if (filters.topic && question.topic !== filters.topic) return false;
         return true;
       });
-      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${escapeHtml(exam.version || 'Bangla')} · ${exam.questionIds.length} Questions · ${escapeHtml(String(exam.setCount || state.settings.printConfig.setCount || 1))} Sets</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Auto build from Question Bank</label><div class="app-form app-form--two-col"><label>MCQ Count<input type="number" min="0" value="30" data-auto-mcq="${exam.id}" /></label><label>CQ Count<input type="number" min="0" value="0" data-auto-cq="${exam.id}" /></label><label>Mode<select data-auto-mode="${exam.id}"><option value="replace">Replace existing</option><option value="append">Append with existing</option></select></label><label>Version<select data-auto-version="${exam.id}"><option value="Bangla" ${String(exam.version || 'Bangla') === 'Bangla' ? 'selected' : ''}>Bangla Version</option><option value="English" ${String(exam.version || 'Bangla') === 'English' ? 'selected' : ''}>English Version</option></select></label><label>Set Count<input type="number" min="1" max="10" value="${escapeAttr(String(exam.setCount || state.settings.printConfig.setCount || 1))}" data-auto-setcount="${exam.id}" /></label><div class="full-span entity-actions"><button type="button" class="toolbar-button" data-auto-apply-setcount="${exam.id}">Save Set Count</button><button type="button" class="submit-button" data-auto-generate="${exam.id}">Auto Generate Questions</button></div><p class="full-span muted-copy">উপরে Handle Exam filter (Level/Group/Subject/Topic) + Version অনুযায়ী pool filter হবে। তারপর MCQ/CQ count অনুযায়ী auto assign হবে। Manual checkbox selection আগের মতোই কাজ করবে।</p></div><label>Assign questions (Manual)</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.version || 'Bangla')} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${escapeHtml(exam.version || 'Bangla')} · ${exam.questionIds.length} Questions · ${escapeHtml(String(exam.setCount || state.settings.printConfig.setCount || 1))} Sets</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Auto build from Question Bank</label><div class="app-form app-form--two-col"><label>MCQ Count<input type="number" min="0" value="30" data-auto-mcq="${exam.id}" /></label><label>CQ Count<input type="number" min="0" value="0" data-auto-cq="${exam.id}" /></label><label>Mode<select data-auto-mode="${exam.id}"><option value="replace">Replace existing</option><option value="append">Append with existing</option></select></label><label>Version<select data-auto-version="${exam.id}"><option value="Bangla" ${String(exam.version || 'Bangla') === 'Bangla' ? 'selected' : ''}>Bangla Version</option><option value="English" ${String(exam.version || 'Bangla') === 'English' ? 'selected' : ''}>English Version</option></select></label><label>Set Count<input type="number" min="1" max="10" value="${escapeAttr(String(exam.setCount || state.settings.printConfig.setCount || 1))}" data-auto-setcount="${exam.id}" /></label><label class="checkbox-row checkbox-card full-span"><input type="checkbox" data-auto-unique-sets="${exam.id}" ${exam.uniqueSetGeneration ? 'checked' : ''} /><span>Unique set questions (ON = প্রতিটি set এ আলাদা প্রশ্ন, OFF = একই প্রশ্ন shuffle)</span></label><div class="full-span entity-actions"><button type="button" class="toolbar-button" data-auto-apply-setcount="${exam.id}">Save Set Count</button><button type="button" class="submit-button" data-auto-generate="${exam.id}">Auto Generate Questions</button></div><p class="full-span muted-copy">Unique set OFF থাকলে একই question list থেকে সেটভিত্তিক shuffle হবে। Unique set ON করলে প্রতি set এর জন্য আলাদা প্রশ্ন টানা হবে (পর্যাপ্ত প্রশ্ন pool দরকার)।</p></div><label>Assign questions (Manual)</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.version || 'Bangla')} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
     }).join('');
     renderPrintFormatActions(scopedExams[0] || null);
     target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => {
@@ -1531,6 +1557,8 @@
       const exam = findExam(checkbox.dataset.examId);
       if (!exam) return showToast('Exam not found.', 'error');
       exam.questionIds = checkbox.checked ? [...new Set([...exam.questionIds, checkbox.dataset.questionId])] : exam.questionIds.filter((id) => id !== checkbox.dataset.questionId);
+      exam.uniqueSetGeneration = false;
+      exam.setQuestionMap = {};
       saveState();
       renderExamManager();
       showToast('Exam question mapping updated.');
@@ -1551,8 +1579,9 @@
       const cqCount = Number(target.querySelector(`[data-auto-cq="${exam.id}"]`)?.value || 0);
       const mode = String(target.querySelector(`[data-auto-mode="${exam.id}"]`)?.value || 'replace');
       const version = String(target.querySelector(`[data-auto-version="${exam.id}"]`)?.value || exam.version || 'Bangla');
+      const uniqueSets = !!target.querySelector(`[data-auto-unique-sets="${exam.id}"]`)?.checked;
       const filtersNow = getQuestionFilters();
-      autoAssignQuestionsToExam(exam, { mcqCount, cqCount, mode, version, filters: filtersNow });
+      autoAssignQuestionsToExam(exam, { mcqCount, cqCount, mode, version, filters: filtersNow, uniqueSets });
       saveState();
       renderExamManager();
     }));
@@ -1579,7 +1608,10 @@
     const cqCount = Math.max(0, Number(options.cqCount || 0));
     const mode = String(options.mode || 'replace');
     const version = String(options.version || exam.version || 'Bangla');
+    const uniqueSets = !!options.uniqueSets;
     const filters = options.filters || {};
+    const safeSetCount = Math.max(1, Math.min(10, Number(exam.setCount || state.settings.printConfig.setCount || 1)));
+    const labelStyle = String(state.settings.printConfig?.setLabelStyle || 'alphabet');
 
     const pool = state.questions.filter((question) => {
       if (exam.subject && question.subject && question.subject !== exam.subject) return false;
@@ -1593,13 +1625,41 @@
 
     const mcqPool = shuffleArray(pool.filter((q) => String(q.type || 'mcq').toLowerCase() !== 'cq'));
     const cqPool = shuffleArray(pool.filter((q) => String(q.type || 'mcq').toLowerCase() === 'cq'));
+    if (uniqueSets) {
+      const needMcq = mcqCount * safeSetCount;
+      const needCq = cqCount * safeSetCount;
+      if (mcqPool.length < needMcq || cqPool.length < needCq) {
+        return showToast(`Unique set generation failed: need ${needMcq} MCQ & ${needCq} CQ, পাওয়া গেছে ${mcqPool.length} MCQ & ${cqPool.length} CQ.`, 'error');
+      }
+      const setQuestionMap = {};
+      const combined = [];
+      for (let setIndex = 0; setIndex < safeSetCount; setIndex += 1) {
+        const setCode = getSetCodeByIndex(setIndex, labelStyle);
+        const fromMcq = mcqPool.slice(setIndex * mcqCount, (setIndex + 1) * mcqCount);
+        const fromCq = cqPool.slice(setIndex * cqCount, (setIndex + 1) * cqCount);
+        const setQuestions = shuffleArray([...fromMcq, ...fromCq]);
+        const ids = setQuestions.map((item) => item.id);
+        setQuestionMap[setCode] = ids;
+        combined.push(...ids);
+      }
+      exam.questionIds = mode === 'append' ? [...new Set([...(exam.questionIds || []), ...combined])] : [...new Set(combined)];
+      exam.uniqueSetGeneration = true;
+      exam.setQuestionMap = setQuestionMap;
+      exam.version = version;
+      return showToast(`Unique set ready: ${safeSetCount} সেটে আলাদা প্রশ্ন বসানো হয়েছে।`);
+    }
+
     const selectedIds = [...mcqPool.slice(0, mcqCount), ...cqPool.slice(0, cqCount)].map((q) => q.id);
-
     if (!selectedIds.length) return showToast('Filter অনুযায়ী কোন প্রশ্ন পাওয়া যায়নি।', 'error');
-
     exam.questionIds = mode === 'append' ? [...new Set([...(exam.questionIds || []), ...selectedIds])] : [...new Set(selectedIds)];
+    exam.uniqueSetGeneration = false;
+    exam.setQuestionMap = {};
     exam.version = version;
     showToast(`Auto assigned: ${selectedIds.length} প্রশ্ন (${Math.min(mcqCount, mcqPool.length)} MCQ, ${Math.min(cqCount, cqPool.length)} CQ).`);
+  }
+
+  function getSetCodeByIndex(setIndex, labelStyle = 'alphabet') {
+    return labelStyle === 'numeric' ? String(setIndex + 1) : String.fromCharCode(65 + setIndex);
   }
 
   function buildInlineManageQuestionEditor(question) {
@@ -1789,9 +1849,14 @@
     const scopedQuestions = questions.filter((question) => !exam.version || String(question.version || 'Bangla') === String(exam.version));
     const safeSetCount = Math.max(1, Math.min(10, Number(exam.setCount || config.setCount || 1)));
     return Array.from({ length: safeSetCount }, (_, setIndex) => {
-      const setCode = config.setLabelStyle === 'numeric' ? String(setIndex + 1) : String.fromCharCode(65 + setIndex);
+      const setCode = getSetCodeByIndex(setIndex, config.setLabelStyle);
       const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${setCode}`;
-      const generated = buildQuestionSet(scopedQuestions, config, { seed: `${exam.id}-${setCode}` });
+      const setSpecificIds = exam.uniqueSetGeneration ? (exam.setQuestionMap?.[setCode] || []) : [];
+      const setSpecificQuestions = setSpecificIds
+        .map((id) => questions.find((item) => item.id === id))
+        .filter(Boolean);
+      const source = setSpecificQuestions.length ? setSpecificQuestions : scopedQuestions;
+      const generated = buildQuestionSet(source, config, { seed: `${exam.id}-${setCode}` });
       const { setQuestions, answerKey } = applyLiveLayoutToSet(exam.id, setCode, generated.setQuestions);
       return { setIndex, setCode, setLabel, setQuestions, answerKey, config };
     });
