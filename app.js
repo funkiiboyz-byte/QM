@@ -905,6 +905,25 @@
       if (value.question && typeof value.question === 'object') return [value.question];
       return [];
     };
+    const parseJsonChunk = (chunk) => {
+      const source = String(chunk || '').trim();
+      if (!source) return null;
+      const candidates = [
+        source,
+        normalizeEscapedLayout(source),
+        normalizeUnsafeBackslashes(source),
+        repairUnescapedInnerQuotes(source),
+        repairUnescapedInnerQuotes(normalizeUnsafeBackslashes(normalizeEscapedLayout(source))),
+      ];
+      for (const candidate of candidates) {
+        try {
+          return JSON.parse(candidate);
+        } catch {
+          // try next candidate
+        }
+      }
+      return null;
+    };
     const parseConcatenatedJson = (text) => {
       const source = String(text || '').trim();
       if (!source) return null;
@@ -937,7 +956,8 @@
         }
       }
       if (blocks.length < 2) return null;
-      const parsed = blocks.map((chunk) => JSON.parse(chunk));
+      const parsed = blocks.map((chunk) => parseJsonChunk(chunk)).filter(Boolean);
+      if (!parsed.length) return null;
       const mergedQuestions = parsed.flatMap((item) => collectQuestions(item));
       if (mergedQuestions.length) return { questions: mergedQuestions };
       return parsed[0];
