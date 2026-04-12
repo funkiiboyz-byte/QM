@@ -924,9 +924,7 @@
       }
       return null;
     };
-    const parseConcatenatedJson = (text) => {
-      const source = String(text || '').trim();
-      if (!source) return null;
+    const extractTopLevelBlocks = (source, respectStrings = true) => {
       const blocks = [];
       let depth = 0;
       let start = -1;
@@ -934,15 +932,17 @@
       let escaped = false;
       for (let i = 0; i < source.length; i += 1) {
         const ch = source[i];
-        if (inString) {
-          if (escaped) escaped = false;
-          else if (ch === '\\') escaped = true;
-          else if (ch === '"') inString = false;
-          continue;
-        }
-        if (ch === '"') {
-          inString = true;
-          continue;
+        if (respectStrings) {
+          if (inString) {
+            if (escaped) escaped = false;
+            else if (ch === '\\') escaped = true;
+            else if (ch === '"') inString = false;
+            continue;
+          }
+          if (ch === '"') {
+            inString = true;
+            continue;
+          }
         }
         if (ch === '{' || ch === '[') {
           if (depth === 0) start = i;
@@ -955,6 +955,14 @@
           }
         }
       }
+      return blocks;
+    };
+    const parseConcatenatedJson = (text) => {
+      const source = String(text || '').trim();
+      if (!source) return null;
+      const strictBlocks = extractTopLevelBlocks(source, true);
+      const looseBlocks = strictBlocks.length >= 2 ? [] : extractTopLevelBlocks(source, false);
+      const blocks = strictBlocks.length >= 2 ? strictBlocks : looseBlocks;
       if (blocks.length < 2) return null;
       const parsed = blocks.map((chunk) => parseJsonChunk(chunk)).filter(Boolean);
       if (!parsed.length) return null;
