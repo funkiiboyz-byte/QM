@@ -1217,9 +1217,10 @@
   function renderQuestions() {
     const target = document.getElementById('questionList');
     if (!target) return;
-    if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
     const filters = getQuestionListFilters();
     const filtered = getFilteredQuestionList(filters);
+    updateQuestionFilterSummary(filtered.length, state.questions.length);
+    if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
     if (!filtered.length) {
       target.innerHTML = emptyState('No saved question matched current filters.');
       return;
@@ -1242,6 +1243,14 @@
       updateQuestionPreview();
       showToast('Question deleted.');
     }));
+  }
+
+  function updateQuestionFilterSummary(filteredCount, totalCount) {
+    const summary = document.getElementById('qFilterResultCount');
+    if (!summary) return;
+    const safeFiltered = Number.isFinite(filteredCount) ? filteredCount : 0;
+    const safeTotal = Number.isFinite(totalCount) ? totalCount : 0;
+    summary.textContent = `Showing ${safeFiltered} of ${safeTotal} question${safeTotal === 1 ? '' : 's'}`;
   }
 
   function getQuestionListFilters() {
