@@ -905,9 +905,26 @@
       if (value.question && typeof value.question === 'object') return [value.question];
       return [];
     };
-    const parseConcatenatedJson = (text) => {
-      const source = String(text || '').trim();
+    const parseJsonChunk = (chunk) => {
+      const source = String(chunk || '').trim();
       if (!source) return null;
+      const candidates = [
+        source,
+        normalizeEscapedLayout(source),
+        normalizeUnsafeBackslashes(source),
+        repairUnescapedInnerQuotes(source),
+        repairUnescapedInnerQuotes(normalizeUnsafeBackslashes(normalizeEscapedLayout(source))),
+      ];
+      for (const candidate of candidates) {
+        try {
+          return JSON.parse(candidate);
+        } catch {
+          // try next candidate
+        }
+      }
+      return null;
+    };
+    const extractTopLevelBlocks = (source, respectStrings = true) => {
       const blocks = [];
       let depth = 0;
       let start = -1;
@@ -915,15 +932,17 @@
       let escaped = false;
       for (let i = 0; i < source.length; i += 1) {
         const ch = source[i];
-        if (inString) {
-          if (escaped) escaped = false;
-          else if (ch === '\\') escaped = true;
-          else if (ch === '"') inString = false;
-          continue;
-        }
-        if (ch === '"') {
-          inString = true;
-          continue;
+        if (respectStrings) {
+          if (inString) {
+            if (escaped) escaped = false;
+            else if (ch === '\\') escaped = true;
+            else if (ch === '"') inString = false;
+            continue;
+          }
+          if (ch === '"') {
+            inString = true;
+            continue;
+          }
         }
         if (ch === '{' || ch === '[') {
           if (depth === 0) start = i;
@@ -936,8 +955,17 @@
           }
         }
       }
+      return blocks;
+    };
+    const parseConcatenatedJson = (text) => {
+      const source = String(text || '').trim();
+      if (!source) return null;
+      const strictBlocks = extractTopLevelBlocks(source, true);
+      const looseBlocks = strictBlocks.length >= 2 ? [] : extractTopLevelBlocks(source, false);
+      const blocks = strictBlocks.length >= 2 ? strictBlocks : looseBlocks;
       if (blocks.length < 2) return null;
-      const parsed = blocks.map((chunk) => JSON.parse(chunk));
+      const parsed = blocks.map((chunk) => parseJsonChunk(chunk)).filter(Boolean);
+      if (!parsed.length) return null;
       const mergedQuestions = parsed.flatMap((item) => collectQuestions(item));
       if (mergedQuestions.length) return { questions: mergedQuestions };
       return parsed[0];
@@ -1189,9 +1217,10 @@
   function renderQuestions() {
     const target = document.getElementById('questionList');
     if (!target) return;
-    if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
     const filters = getQuestionListFilters();
     const filtered = getFilteredQuestionList(filters);
+    updateQuestionFilterSummary(filtered.length, state.questions.length);
+    if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
     if (!filtered.length) {
       target.innerHTML = emptyState('No saved question matched current filters.');
       return;
@@ -1214,6 +1243,14 @@
       updateQuestionPreview();
       showToast('Question deleted.');
     }));
+  }
+
+  function updateQuestionFilterSummary(filteredCount, totalCount) {
+    const summary = document.getElementById('qFilterResultCount');
+    if (!summary) return;
+    const safeFiltered = Number.isFinite(filteredCount) ? filteredCount : 0;
+    const safeTotal = Number.isFinite(totalCount) ? totalCount : 0;
+    summary.textContent = `Showing ${safeFiltered} of ${safeTotal} question${safeTotal === 1 ? '' : 's'}`;
   }
 
   function getQuestionListFilters() {
@@ -2484,6 +2521,8 @@
       const qrPayload = encodeURIComponent(solutionUrl);
       const qrBlock = includeSolutionQr ? `<div class="solution-qr solution-qr--paper"><img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${qrPayload}" alt="Solution Download QR" /><span class="solution-qr__hint">Solution QR</span></div>` : '';
       let currentSection = '';
+      const subjectCount = new Set(setQuestions.map((question) => String(question.subject || exam.subject || '').trim()).filter(Boolean)).size;
+      const useSubjectHeading = subjectCount > 1;
       let mcqSerial = 0;
       let cqSerial = 0;
       const list = setQuestions.map((question, index) => {
@@ -2493,10 +2532,13 @@
         const showAnswers = forceAnswers || config.showAnswers;
         const showExplanation = forceExplanation || config.showExplanation;
         const imageBlock = question.image ? `<img class="print-question-image" src="${question.image}" alt="Question image ${index + 1}" />` : '';
-        const sectionHeading = question.section && question.section !== currentSection
-          ? `<div class="part-heading">${escapeHtml(question.section)}</div>`
+        const headingLabel = useSubjectHeading
+          ? String(question.subject || exam.subject || '').trim()
+          : String(question.section || '').trim();
+        const sectionHeading = headingLabel && headingLabel !== currentSection
+          ? `<div class="part-heading">${escapeHtml(headingLabel)}</div>`
           : '';
-        currentSection = question.section || currentSection;
+        currentSection = headingLabel || currentSection;
         const questionBody = question.type === 'cq'
           ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatExplanationForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
           : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span>${(question.optionImages || [])[optionIndex] ? `<div><img class="print-option-image" src="${(question.optionImages || [])[optionIndex]}" alt="Option ${optionIndex + 1}" /></div>` : ''}</li>`).join('')}</ul>${showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '', { subject: displaySubject })}</p>` : ''}`;
@@ -2595,14 +2637,24 @@
       });
       return buckets.flatMap((bucket) => (shouldShuffle ? shuffleArray(bucket.items, rng) : bucket.items));
     };
-    const cqQuestions = clonedQuestions.filter((question) => question.type === 'cq');
-    const mcqQuestions = clonedQuestions.filter((question) => question.type !== 'cq');
-    let setQuestions = [];
-    if (config.shuffleQuestions) {
-      setQuestions = [...arrangeByPart(cqQuestions, true), ...arrangeByPart(mcqQuestions, true)];
-    } else {
-      setQuestions = [...arrangeByPart(cqQuestions, false), ...arrangeByPart(mcqQuestions, false)];
-    }
+    const subjectBuckets = [];
+    const subjectIndex = new Map();
+    clonedQuestions.forEach((question) => {
+      const key = String(question.subject || 'General').trim() || 'General';
+      if (!subjectIndex.has(key)) {
+        subjectIndex.set(key, subjectBuckets.length);
+        subjectBuckets.push({ key, items: [] });
+      }
+      subjectBuckets[subjectIndex.get(key)].items.push(question);
+    });
+    const orderedSubjectBuckets = config.shuffleQuestions ? shuffleArray(subjectBuckets, rng) : subjectBuckets;
+    let setQuestions = orderedSubjectBuckets.flatMap((bucket) => {
+      const cqQuestions = bucket.items.filter((question) => question.type === 'cq');
+      const mcqQuestions = bucket.items.filter((question) => question.type !== 'cq');
+      return config.shuffleQuestions
+        ? [...arrangeByPart(cqQuestions, true), ...arrangeByPart(mcqQuestions, true)]
+        : [...arrangeByPart(cqQuestions, false), ...arrangeByPart(mcqQuestions, false)];
+    });
     const answerKey = [];
     setQuestions = setQuestions.map((question) => {
       if (question.type !== 'mcq') {
