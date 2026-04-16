@@ -2521,6 +2521,8 @@
       const qrPayload = encodeURIComponent(solutionUrl);
       const qrBlock = includeSolutionQr ? `<div class="solution-qr solution-qr--paper"><img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${qrPayload}" alt="Solution Download QR" /><span class="solution-qr__hint">Solution QR</span></div>` : '';
       let currentSection = '';
+      const subjectCount = new Set(setQuestions.map((question) => String(question.subject || exam.subject || '').trim()).filter(Boolean)).size;
+      const useSubjectHeading = subjectCount > 1;
       let mcqSerial = 0;
       let cqSerial = 0;
       const list = setQuestions.map((question, index) => {
@@ -2530,10 +2532,13 @@
         const showAnswers = forceAnswers || config.showAnswers;
         const showExplanation = forceExplanation || config.showExplanation;
         const imageBlock = question.image ? `<img class="print-question-image" src="${question.image}" alt="Question image ${index + 1}" />` : '';
-        const sectionHeading = question.section && question.section !== currentSection
-          ? `<div class="part-heading">${escapeHtml(question.section)}</div>`
+        const headingLabel = useSubjectHeading
+          ? String(question.subject || exam.subject || '').trim()
+          : String(question.section || '').trim();
+        const sectionHeading = headingLabel && headingLabel !== currentSection
+          ? `<div class="part-heading">${escapeHtml(headingLabel)}</div>`
           : '';
-        currentSection = question.section || currentSection;
+        currentSection = headingLabel || currentSection;
         const questionBody = question.type === 'cq'
           ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatExplanationForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
           : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span>${(question.optionImages || [])[optionIndex] ? `<div><img class="print-option-image" src="${(question.optionImages || [])[optionIndex]}" alt="Option ${optionIndex + 1}" /></div>` : ''}</li>`).join('')}</ul>${showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '', { subject: displaySubject })}</p>` : ''}`;
@@ -2632,14 +2637,24 @@
       });
       return buckets.flatMap((bucket) => (shouldShuffle ? shuffleArray(bucket.items, rng) : bucket.items));
     };
-    const cqQuestions = clonedQuestions.filter((question) => question.type === 'cq');
-    const mcqQuestions = clonedQuestions.filter((question) => question.type !== 'cq');
-    let setQuestions = [];
-    if (config.shuffleQuestions) {
-      setQuestions = [...arrangeByPart(cqQuestions, true), ...arrangeByPart(mcqQuestions, true)];
-    } else {
-      setQuestions = [...arrangeByPart(cqQuestions, false), ...arrangeByPart(mcqQuestions, false)];
-    }
+    const subjectBuckets = [];
+    const subjectIndex = new Map();
+    clonedQuestions.forEach((question) => {
+      const key = String(question.subject || 'General').trim() || 'General';
+      if (!subjectIndex.has(key)) {
+        subjectIndex.set(key, subjectBuckets.length);
+        subjectBuckets.push({ key, items: [] });
+      }
+      subjectBuckets[subjectIndex.get(key)].items.push(question);
+    });
+    const orderedSubjectBuckets = config.shuffleQuestions ? shuffleArray(subjectBuckets, rng) : subjectBuckets;
+    let setQuestions = orderedSubjectBuckets.flatMap((bucket) => {
+      const cqQuestions = bucket.items.filter((question) => question.type === 'cq');
+      const mcqQuestions = bucket.items.filter((question) => question.type !== 'cq');
+      return config.shuffleQuestions
+        ? [...arrangeByPart(cqQuestions, true), ...arrangeByPart(mcqQuestions, true)]
+        : [...arrangeByPart(cqQuestions, false), ...arrangeByPart(mcqQuestions, false)];
+    });
     const answerKey = [];
     setQuestions = setQuestions.map((question) => {
       if (question.type !== 'mcq') {
