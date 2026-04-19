@@ -2701,20 +2701,41 @@
   }
 
   function latexToPlainText(text) {
+    const commandMap = {
+      alpha: 'α',
+      beta: 'β',
+      gamma: 'γ',
+      delta: 'δ',
+      theta: 'θ',
+      pi: 'π',
+      mu: 'μ',
+      infty: '∞',
+      times: '×',
+      cdot: '·',
+      div: '÷',
+      pm: '±',
+      leq: '≤',
+      geq: '≥',
+      neq: '≠',
+      sec: 'sec',
+      csc: 'csc',
+      tan: 'tan',
+      cos: 'cos',
+      sin: 'sin',
+      cot: 'cot',
+      log: 'log',
+      ln: 'ln',
+    };
     return String(text || '')
       .replace(/\\\((.*?)\\\)/g, '$1')
       .replace(/\\\[(.*?)\\\]/g, '$1')
       .replace(/\$\$(.*?)\$\$/g, '$1')
       .replace(/\$(.*?)\$/g, '$1')
-      .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '$1/$2')
-      .replace(/\\sqrt\{([^}]*)\}/g, 'sqrt($1)')
-      .replace(/\\times/g, 'x')
-      .replace(/\\cdot/g, '.')
-      .replace(/\\leq/g, '<=')
-      .replace(/\\geq/g, '>=')
-      .replace(/\\neq/g, '!=')
-      .replace(/\\%/g, '%')
-      .replace(/\\[a-zA-Z]+/g, '')
+      .replace(/\\(?:d?frac)\{([^{}]+)\}\{([^{}]+)\}/g, '($1)/($2)')
+      .replace(/\\sqrt\{([^{}]+)\}/g, 'sqrt($1)')
+      .replace(/\\left|\\right/g, '')
+      .replace(/\\([a-zA-Z]+)\b/g, (_, cmd) => commandMap[cmd] ?? cmd)
+      .replace(/\\([&%$#_{}])/g, '$1')
       .replace(/[{}]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -3374,67 +3395,6 @@
       if (!next || next !== confirm) return showToast('Password confirmation failed.', 'error');
       state.credentials.adminPassword = next; saveState(); event.target.reset(); showToast('Password updated.');
     });
-    /**
- * A utility to strip LaTeX commands and convert to plain text.
- * Note: This handles common formatting and math symbols.
- */
-const latexToText = (latex) => {
-  let text = latex;
-
-  // 1. Handle escaped characters (e.g., \{ -> {, \& -> &)
-  text = text.replace(/\\([&%$#_{}])/g, '$1');
-
-  // 2. Remove comments
-  text = text.replace(/%.*$/gm, '');
-
-  // 3. Remove common environments (begin/end blocks)
-  text = text.replace(/\\begin\{.*?\}/g, '');
-  text = text.replace(/\\end\{.*?\}/g, '');
-
-  // 4. Convert specific math symbols/commands to readable equivalents
-  const replacements = [
-    { regex: /\\alpha/g, subst: 'α' },
-    { regex: /\\beta/g, subst: 'β' },
-    { regex: /\\gamma/g, subst: 'γ' },
-    { regex: /\\infty/g, subst: '∞' },
-    { regex: /\\pm/g, subst: '±' },
-    { regex: /\\neq/g, subst: '≠' },
-    { regex: /\\approx/g, subst: '≈' },
-    { regex: /\\times/g, subst: '×' },
-    { regex: /\\div/g, subst: '÷' },
-    { regex: /\\rightarrow/g, subst: '→' }
-  ];
-
-  replacements.forEach(item => {
-    text = text.replace(item.regex, item.subst);
-  });
-
-  // 5. Remove formatting commands but keep the content: \textbf{Hello} -> Hello
-  // This uses a non-greedy match for the content inside braces
-  text = text.replace(/\\[a-zA-Z]+\{(.*?)\}/g, '$1');
-
-  // 6. Handle subscripts (_) and superscripts (^)
-  text = text.replace(/\^\{(.*?)\}/g, '^($1)');
-  text = text.replace(/_\{(.*?)\}/g, '_($1)');
-
-  // 7. Strip remaining backslashes and lone commands
-  text = text.replace(/\\[a-zA-Z]+/g, '');
-
-  // 8. Clean up whitespace
-  return text.trim().replace(/\s\s+/g, ' ');
-};
-
-// --- Example Usage ---
-const sampleLatex = `
-\\section{Introduction}
-The formula for the area of a circle is $A = \\pi r^2$. 
-\\textbf{Note:} If the radius is \\infty, the area is also \\infty.
-`;
-
-console.log("--- Original LaTeX ---");
-console.log(sampleLatex);
-console.log("\n--- Plain Text Output ---");
-console.log(latexToText(sampleLatex));
   }
 
   function parseCommaList(value) { return value.split(',').map((item) => item.trim()).filter(Boolean); }
