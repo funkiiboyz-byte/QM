@@ -3425,11 +3425,17 @@
       .replace(/\s+/g, ' ')
       .replace(isPhysics ? /([NnJjMmKkGgSsTtLl])(\d+)(?=[A-Za-z\]\s]|$)/g : /\b([a-zA-Z])(\d+)\b/g, '$1^$2')
       .trim();
-    const withSuperSub = normalized
+    const withDiffFractions = isPhysics
+      ? normalized
+      : normalized
+        .replace(/\bd\^([+\-−]?\d+(?:\.\d+)?)\s*([A-Za-z])\s*\/\s*d([A-Za-z])\^([+\-−]?\d+(?:\.\d+)?)\b/g, '<span class="math-frac"><span class="math-frac__num">d^$1$2</span><span class="math-frac__den">d$3^$4</span></span>')
+        .replace(/\bd\s*([A-Za-z])\s*\/\s*d([A-Za-z])\b/g, '<span class="math-frac"><span class="math-frac__num">d$1</span><span class="math-frac__den">d$2</span></span>');
+    const withSuperSub = withDiffFractions
       .replace(/sqrt\(([^)]+)\)/g, '√$1')
       .replace(/([A-Za-z0-9)\]])\s*\^\s*\(([^)]+)\)/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*\(([^)]+)\)/g, '$1<sub>$2</sub>')
-      .replace(isPhysics ? /([A-Za-z0-9)\]])\s*\^\s*([+\-−]?\d+(?:\.\d+)?)/g : /([A-Za-z0-9)\]])\s*\^\s*([+\-−]?[A-Za-z0-9.]+)/g, '$1<sup>$2</sup>')
+      .replace(/([A-Za-z0-9)\]])\s*\^\s*([+\-−]?\d+(?:\.\d+)?)(?![A-Za-z])/g, '$1<sup>$2</sup>')
+      .replace(/([A-Za-z0-9)\]])\s*\^\s*([A-Za-z])(?![A-Za-z0-9])/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*([A-Za-z0-9.]+)/g, '$1<sub>$2</sub>');
     if (isPhysics) return withSuperSub;
     return withSuperSub.replace(/(?<![\w>])([A-Za-z0-9.+\-]+)\s*\/\s*([A-Za-z0-9.+\-]+)(?![\w<])/g, '<span class="math-frac"><span class="math-frac__num">$1</span><span class="math-frac__den">$2</span></span>');
