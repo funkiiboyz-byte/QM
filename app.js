@@ -428,6 +428,8 @@
       endTime: document.getElementById('examEndTime').value,
       sections,
       questionIds: existing?.questionIds || [],
+      setQuestionMap: existing?.setQuestionMap || {},
+      uniqueSetGeneration: !!existing?.uniqueSetGeneration,
       published: existing?.published || false,
       createdAt: existing?.createdAt || new Date().toISOString(),
     };
@@ -813,11 +815,15 @@
               ? payload.result.questions
               : Array.isArray(payload.output)
                 ? payload.output
-          : payload.question
-            ? [payload.question]
-            : payload.questions === undefined && typeof payload === 'object'
-              ? [payload]
-              : [];
+                : Array.isArray(payload.mcq)
+                  ? payload.mcq
+                  : Array.isArray(payload.items)
+                    ? payload.items
+                    : payload.question
+                      ? [payload.question]
+                      : payload.questions === undefined && typeof payload === 'object'
+                        ? [payload]
+                        : [];
       if (!items.length) throw new Error('No valid question payload found.');
 
       const summary = { imported: 0, skipped: 0 };
@@ -848,6 +854,94 @@
   function parseJsonImportPayload(raw) {
     const normalizeUnsafeBackslashes = (text) => String(text || '').replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
     const normalizeEscapedLayout = (text) => String(text || '').replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+    const repairUnescapedInnerQuotes = (text) => {
+      const input = String(text || '');
+      let out = '';
+      let inString = false;
+      let escaped = false;
+      for (let i = 0; i < input.length; i += 1) {
+        const ch = input[i];
+        if (!inString) {
+          if (ch === '"') inString = true;
+          out += ch;
+          escaped = false;
+          continue;
+        }
+        if (escaped) {
+          out += ch;
+          escaped = false;
+          continue;
+        }
+        if (ch === '\\') {
+          out += ch;
+          escaped = true;
+          continue;
+        }
+        if (ch === '"') {
+          const tail = input.slice(i + 1);
+          const nextNonWs = (tail.match(/\S/) || [''])[0];
+          const isCloser = !nextNonWs || [',', '}', ']', ':'].includes(nextNonWs);
+          if (isCloser) {
+            inString = false;
+            out += ch;
+          } else {
+            out += '\\"';
+          }
+          continue;
+        }
+        out += ch;
+      }
+      return out;
+    };
+    const collectQuestions = (value) => {
+      if (!value || typeof value !== 'object') return [];
+      if (Array.isArray(value)) return value;
+      if (Array.isArray(value.questions)) return value.questions;
+      if (Array.isArray(value.data?.questions)) return value.data.questions;
+      if (Array.isArray(value.result?.questions)) return value.result.questions;
+      if (Array.isArray(value.output)) return value.output;
+      if (Array.isArray(value.mcq)) return value.mcq;
+      if (Array.isArray(value.items)) return value.items;
+      if (value.question && typeof value.question === 'object') return [value.question];
+      return [];
+    };
+    const parseConcatenatedJson = (text) => {
+      const source = String(text || '').trim();
+      if (!source) return null;
+      const blocks = [];
+      let depth = 0;
+      let start = -1;
+      let inString = false;
+      let escaped = false;
+      for (let i = 0; i < source.length; i += 1) {
+        const ch = source[i];
+        if (inString) {
+          if (escaped) escaped = false;
+          else if (ch === '\\') escaped = true;
+          else if (ch === '"') inString = false;
+          continue;
+        }
+        if (ch === '"') {
+          inString = true;
+          continue;
+        }
+        if (ch === '{' || ch === '[') {
+          if (depth === 0) start = i;
+          depth += 1;
+        } else if (ch === '}' || ch === ']') {
+          depth -= 1;
+          if (depth === 0 && start >= 0) {
+            blocks.push(source.slice(start, i + 1));
+            start = -1;
+          }
+        }
+      }
+      if (blocks.length < 2) return null;
+      const parsed = blocks.map((chunk) => JSON.parse(chunk));
+      const mergedQuestions = parsed.flatMap((item) => collectQuestions(item));
+      if (mergedQuestions.length) return { questions: mergedQuestions };
+      return parsed[0];
+    };
     const unwrap = (value) => {
       if (value && typeof value === 'object' && typeof value.response === 'string') return value.response.trim();
       if (value && typeof value === 'object' && typeof value.output_text === 'string') return value.output_text.trim();
@@ -880,11 +974,18 @@
           try {
             return JSON.parse(normalized);
           } catch {
-            const startObject = normalized.indexOf('{');
-            const startArray = normalized.indexOf('[');
+            const repairedQuotes = repairUnescapedInnerQuotes(normalized);
+            try {
+              return JSON.parse(repairedQuotes);
+            } catch {
+              const multi = parseConcatenatedJson(repairedQuotes);
+              if (multi) return multi;
+            }
+            const startObject = repairedQuotes.indexOf('{');
+            const startArray = repairedQuotes.indexOf('[');
             const start = startArray >= 0 && (startArray < startObject || startObject < 0) ? startArray : startObject;
-            const end = Math.max(normalized.lastIndexOf('}'), normalized.lastIndexOf(']'));
-            if (start >= 0 && end > start) return JSON.parse(normalized.slice(start, end + 1));
+            const end = Math.max(repairedQuotes.lastIndexOf('}'), repairedQuotes.lastIndexOf(']'));
+            if (start >= 0 && end > start) return JSON.parse(repairedQuotes.slice(start, end + 1));
             throw new Error('Invalid JSON format.');
           }
         }
@@ -932,7 +1033,16 @@
     const type = String(question.type || (question.stimulus ? 'cq' : 'mcq')).toLowerCase();
     const partLabel = String(question.part || question.section || (meta.partWise ? (meta.defaultPart || subject || topic || '') : '')).trim();
     if (type === 'cq') {
-      const subQuestions = Array.isArray(question.subQuestions) ? question.subQuestions.filter((item) => item && (item.prompt || item.answer || item.label)) : [];
+      const rawSubQuestions = Array.isArray(question.subQuestions)
+        ? question.subQuestions
+        : Array.isArray(question.sub_questions)
+          ? question.sub_questions
+          : Array.isArray(question.parts)
+            ? question.parts
+            : Array.isArray(question.questions)
+              ? question.questions
+              : [];
+      const subQuestions = rawSubQuestions.filter((item) => item && (item.prompt || item.question || item.answer || item.modelAnswer || item.label || item.part));
       const stimulus = String(question.stimulus || question.question || '').trim();
       if (!stimulus && !subQuestions.length) return null;
       return {
@@ -947,9 +1057,9 @@
         partTagged: !!meta.partWise,
         stimulus,
         subQuestions: subQuestions.map((item, index) => ({
-          label: String(item.label || String.fromCharCode(65 + index)).trim(),
-          prompt: String(item.prompt || '').trim(),
-          answer: String(item.answer || '').trim(),
+          label: String(item.label || item.part || String.fromCharCode(65 + index)).trim(),
+          prompt: String(item.prompt || item.question || '').trim(),
+          answer: String(item.answer || item.modelAnswer || item.sampleAnswer || '').trim(),
         })),
         image: question.image || '',
         createdAt: new Date().toISOString(),
@@ -957,15 +1067,26 @@
       };
     }
 
-    const options = Array.isArray(question.options)
-      ? question.options.map((option) => (typeof option === 'string' ? option : option?.text || '')).map((option) => String(option).trim()).filter(Boolean)
+    const rawOptions = Array.isArray(question.options)
+      ? question.options
+      : question.options && typeof question.options === 'object'
+        ? Object.keys(question.options)
+          .sort()
+          .map((key) => question.options[key])
+        : [];
+    const options = rawOptions.length
+      ? rawOptions.map((option) => (typeof option === 'string' ? option : option?.text || option?.option || '')).map((option) => String(option).trim()).filter(Boolean)
       : [question.optionA, question.optionB, question.optionC, question.optionD].map((option) => String(option || '').trim()).filter(Boolean);
     const finalOptions = options.length
       ? options
       : [];
     const text = String(question.question || question.stem || '').trim();
     if (!text || !finalOptions.length) return null;
-    const correct = normalizeCorrectIndex(question.correct, question.answer, finalOptions);
+    const correct = normalizeCorrectIndex(
+      question.correct,
+      question.answer || question.correctAnswer || question.correct_option || question.correctOption || question.ans,
+      finalOptions,
+    );
     const optionImages = Array.isArray(question.optionImages) ? question.optionImages.map((item) => String(item || '')) : [];
     return {
       id: uid('question'),
@@ -1414,9 +1535,9 @@
       const options = entry.optionsOrder.map((sourceIndex, localIndex) => `<li draggable="true" data-option-drag="${index}::${sourceIndex}"><span class="option-label">${String.fromCharCode(65 + localIndex)}.</span> <span>${formatMathForDisplay((question.options || [])[sourceIndex] || '', { subject: displaySubject })}</span>${(question.optionImages || [])[sourceIndex] ? `<div><img class="print-option-image" src="${(question.optionImages || [])[sourceIndex]}" alt="Option ${localIndex + 1}" /></div>` : ''}</li>`).join('');
       if (question.type === 'cq') {
         const subs = (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}</div>`).join('');
-        return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><h3>${serial}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${imageBlock}${subs || '<p class="muted-copy">No sub-question found.</p>'}</article>`;
+        return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><div class="live-preview-card__head"><h3>${serial}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><button type="button" class="toolbar-button" data-live-edit="${index}">Edit</button></div>${imageBlock}${subs || '<p class="muted-copy">No sub-question found.</p>'}</article>`;
       }
-      return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><h3>${serial}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3>${imageBlock}<ul class="option-list option-list--grid live-preview-options">${options}</ul></article>`;
+      return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><div class="live-preview-card__head"><h3>${serial}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><button type="button" class="toolbar-button" data-live-edit="${index}">Edit</button></div>${imageBlock}<ul class="option-list option-list--grid live-preview-options">${options}</ul></article>`;
     }).join('');
     const headerLogos = `${activeSet.config.leftLogo ? `<img class="header-logo header-logo--left" src="${activeSet.config.leftLogo}" alt="Left logo" />` : ''}${activeSet.config.rightLogo ? `<img class="header-logo header-logo--right" src="${activeSet.config.rightLogo}" alt="Right logo" />` : ''}`;
     panel.innerHTML = `<h4>Live Print Preview</h4><div class="field-row"><label>Set Filter<select id="livePreviewSetFilter">${sets.map((item) => `<option value="${item.setCode}" ${item.setCode === activeSet.setCode ? 'selected' : ''}>${escapeHtml(item.setLabel)}</option>`).join('')}</select></label></div><p class="muted-copy">Print er moto exact question paper preview. Drag kore question/option position change korle answer key o update hobe.</p><section class="paper set-paper live-preview-paper"><div class="board-head board-head--${escapeAttr(activeSet.config.headerTheme || 'classic')}">${headerLogos}<h1>${formatMathForDisplay(activeSet.config.headerTitle)}</h1><h2>${formatMathForDisplay(activeSet.config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(activeSet.setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(activeSet.config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(activeSet.config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(activeSet.config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(activeSet.config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(activeSet.config.paperSubject || exam.subject)} · ${escapeHtml(activeSet.config.paperDate || exam.examDate)} · ${escapeHtml(activeSet.config.paperType || exam.examType)}</p><p class="instructions">${formatMathForDisplay(activeSet.config.instructions)}</p></div><div class="question-grid">${paperQuestions || '<p>No assigned question found.</p>'}</div></section><div class="table-wrap"><table class="result-table"><thead><tr><th>MCQ No</th><th>Answer Key</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${item}</td></tr>`).join('')}</tbody></table></div>`;
@@ -1425,6 +1546,7 @@
       renderLivePrintPreview(exam);
     });
     bindLivePreviewDrag(panel, exam, activeSet, renderedQuestions);
+    bindLivePreviewEditor(panel, exam, activeSet, renderedQuestions);
     queueTypeset();
   }
 
@@ -1468,6 +1590,87 @@
     });
   }
 
+  function bindLivePreviewEditor(panel, exam, activeSet, renderedQuestions) {
+    const layoutKey = `${exam.id}::${activeSet.setCode}`;
+    panel.querySelectorAll('[data-live-edit]').forEach((button) => button.addEventListener('click', () => {
+      const index = Number(button.dataset.liveEdit);
+      if (Number.isNaN(index) || !renderedQuestions[index]) return;
+      const current = renderedQuestions[index];
+      const base = current.question || {};
+      const nextQuestion = {
+        ...base,
+        options: [...(base.options || [])],
+        subQuestions: (base.subQuestions || []).map((item) => ({ ...item })),
+      };
+      const updatedStem = window.prompt('Question / Stimulus edit করুন (LaTeX supported):', String(nextQuestion.question || nextQuestion.stimulus || ''));
+      if (updatedStem === null) return;
+      if (nextQuestion.type === 'cq') nextQuestion.stimulus = updatedStem.trim();
+      else nextQuestion.question = updatedStem.trim();
+      if (nextQuestion.type !== 'cq') {
+        const optionsText = window.prompt('Options (প্রতি লাইনে ১টি):', (nextQuestion.options || []).join('\n'));
+        if (optionsText === null) return;
+        const parsedOptions = String(optionsText || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+        if (parsedOptions.length < 2) return showToast('MCQ option কমপক্ষে 2টি লাগবে।', 'error');
+        const correctRaw = window.prompt('Correct option (A/B/C/D or text):', String.fromCharCode(65 + (Number(nextQuestion.correct) || 0)));
+        if (correctRaw === null) return;
+        const explanation = window.prompt('Explanation edit করুন (optional, LaTeX supported):', String(nextQuestion.explanation || ''));
+        if (explanation === null) return;
+        nextQuestion.options = parsedOptions;
+        nextQuestion.correct = normalizeCorrectIndex(null, correctRaw, parsedOptions);
+        nextQuestion.explanation = String(explanation || '');
+      } else {
+        const subPrompt = window.prompt('Sub-question prompt+answer edit করতে চান? (yes/no)', 'no');
+        if ((subPrompt || '').toLowerCase() === 'yes') {
+          nextQuestion.subQuestions = (nextQuestion.subQuestions || []).map((item, subIndex) => {
+            const prompt = window.prompt(`Sub-${subIndex + 1} prompt:`, String(item.prompt || ''));
+            if (prompt === null) return item;
+            const answer = window.prompt(`Sub-${subIndex + 1} answer:`, String(item.answer || ''));
+            if (answer === null) return item;
+            return { ...item, prompt: prompt.trim(), answer: answer.trim() };
+          });
+        }
+      }
+      nextQuestion.updatedAt = new Date().toISOString();
+      const next = [...renderedQuestions];
+      next[index] = { ...current, question: nextQuestion };
+      livePreviewLayouts.set(layoutKey, { questions: next });
+      persistLivePreviewQuestionEdit(exam, nextQuestion);
+      saveState();
+      renderLivePrintPreview(exam);
+      showToast('Live preview question updated.');
+    }));
+  }
+
+  function persistLivePreviewQuestionEdit(exam, nextQuestion) {
+    if (!nextQuestion?.id) return;
+    const base = state.questions.find((item) => item.id === nextQuestion.id);
+    if (base) {
+      Object.assign(base, {
+        question: String(nextQuestion.question || ''),
+        stimulus: String(nextQuestion.stimulus || ''),
+        explanation: String(nextQuestion.explanation || ''),
+        options: [...(nextQuestion.options || [])],
+        subQuestions: (nextQuestion.subQuestions || []).map((item) => ({ ...item })),
+        correct: Number(nextQuestion.correct) || 0,
+        updatedAt: nextQuestion.updatedAt || new Date().toISOString(),
+      });
+    }
+    if (exam?.publishedSnapshot?.questions?.length) {
+      const snapQuestion = exam.publishedSnapshot.questions.find((item) => item.id === nextQuestion.id);
+      if (snapQuestion) {
+        Object.assign(snapQuestion, {
+          question: String(nextQuestion.question || ''),
+          stimulus: String(nextQuestion.stimulus || ''),
+          explanation: String(nextQuestion.explanation || ''),
+          options: [...(nextQuestion.options || [])],
+          subQuestions: (nextQuestion.subQuestions || []).map((item) => ({ ...item })),
+          correct: Number(nextQuestion.correct) || 0,
+          updatedAt: nextQuestion.updatedAt || new Date().toISOString(),
+        });
+      }
+    }
+  }
+
   function renderExamManager() {
     const target = document.getElementById('examManagerList');
     const filterForm = document.getElementById('questionFilterForm');
@@ -1503,7 +1706,7 @@
         if (filters.topic && question.topic !== filters.topic) return false;
         return true;
       });
-      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${escapeHtml(exam.version || 'Bangla')} · ${exam.questionIds.length} Questions · ${escapeHtml(String(exam.setCount || state.settings.printConfig.setCount || 1))} Sets</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Auto build from Question Bank</label><div class="app-form app-form--two-col"><label>MCQ Count<input type="number" min="0" value="30" data-auto-mcq="${exam.id}" /></label><label>CQ Count<input type="number" min="0" value="0" data-auto-cq="${exam.id}" /></label><label>Mode<select data-auto-mode="${exam.id}"><option value="replace">Replace existing</option><option value="append">Append with existing</option></select></label><label>Version<select data-auto-version="${exam.id}"><option value="Bangla" ${String(exam.version || 'Bangla') === 'Bangla' ? 'selected' : ''}>Bangla Version</option><option value="English" ${String(exam.version || 'Bangla') === 'English' ? 'selected' : ''}>English Version</option></select></label><label>Set Count<input type="number" min="1" max="10" value="${escapeAttr(String(exam.setCount || state.settings.printConfig.setCount || 1))}" data-auto-setcount="${exam.id}" /></label><div class="full-span entity-actions"><button type="button" class="toolbar-button" data-auto-apply-setcount="${exam.id}">Save Set Count</button><button type="button" class="submit-button" data-auto-generate="${exam.id}">Auto Generate Questions</button></div><p class="full-span muted-copy">উপরে Handle Exam filter (Level/Group/Subject/Topic) + Version অনুযায়ী pool filter হবে। তারপর MCQ/CQ count অনুযায়ী auto assign হবে। Manual checkbox selection আগের মতোই কাজ করবে।</p></div><label>Assign questions (Manual)</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.version || 'Bangla')} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
+      return `<article class="entity-card entity-card--stacked"><div class="entity-card__head"><div><h4>${escapeHtml(exam.title)}</h4><p>${escapeHtml(exam.level)} · ${escapeHtml(exam.subject)} · ${escapeHtml(exam.version || 'Bangla')} · ${exam.questionIds.length} Questions · ${escapeHtml(String(exam.setCount || state.settings.printConfig.setCount || 1))} Sets</p></div><span class="status-pill ${exam.published ? 'is-live' : ''}">${exam.published ? 'Published' : 'Draft'}</span></div><div class="entity-actions"><a class="toolbar-button" href="handle-exams.html">Back to exam list</a></div><div class="assignment-box"><label>Auto build from Question Bank</label><div class="app-form app-form--two-col"><label>MCQ Count<input type="number" min="0" value="30" data-auto-mcq="${exam.id}" /></label><label>CQ Count<input type="number" min="0" value="0" data-auto-cq="${exam.id}" /></label><label>Mode<select data-auto-mode="${exam.id}"><option value="replace">Replace existing</option><option value="append">Append with existing</option></select></label><label>Version<select data-auto-version="${exam.id}"><option value="Bangla" ${String(exam.version || 'Bangla') === 'Bangla' ? 'selected' : ''}>Bangla Version</option><option value="English" ${String(exam.version || 'Bangla') === 'English' ? 'selected' : ''}>English Version</option></select></label><label>Set Count<input type="number" min="1" max="10" value="${escapeAttr(String(exam.setCount || state.settings.printConfig.setCount || 1))}" data-auto-setcount="${exam.id}" /></label><label class="checkbox-row checkbox-card full-span"><input type="checkbox" data-auto-unique-sets="${exam.id}" ${exam.uniqueSetGeneration ? 'checked' : ''} /><span>Unique set questions (ON = প্রতিটি set এ আলাদা প্রশ্ন, OFF = একই প্রশ্ন shuffle)</span></label><div class="full-span entity-actions"><button type="button" class="toolbar-button" data-auto-apply-setcount="${exam.id}">Save Set Count</button><button type="button" class="submit-button" data-auto-generate="${exam.id}">Auto Generate Questions</button></div><p class="full-span muted-copy">Unique set OFF থাকলে একই question list থেকে সেটভিত্তিক shuffle হবে। Unique set ON করলে প্রতি set এর জন্য আলাদা প্রশ্ন টানা হবে (পর্যাপ্ত প্রশ্ন pool দরকার)।</p></div><label>Assign questions (Manual)</label><div class="assignment-list">${filteredQuestions.length ? filteredQuestions.map((question) => `<div class="assignment-item"><label><input type="checkbox" data-exam-id="${exam.id}" data-question-id="${question.id}" ${exam.questionIds.includes(question.id) ? 'checked' : ''} /><span>${escapeHtml((question.type || 'mcq').toUpperCase())} · ${escapeHtml(question.version || 'Bangla')} · ${escapeHtml(question.topic || question.section || 'Topic')} · ${escapeHtml(question.question || question.stimulus || 'Question')}</span></label><button type="button" class="toolbar-button" data-inline-edit="${question.id}">${activeManageEditQuestionId === question.id ? 'Close Edit' : 'Edit'}</button></div>${activeManageEditQuestionId === question.id ? buildInlineManageQuestionEditor(question) : ''}`).join('') : '<p class="muted-copy">No matching questions found for current filter.</p>'}</div></div></article>`;
     }).join('');
     renderPrintFormatActions(scopedExams[0] || null);
     target.querySelectorAll('[data-publish-exam]').forEach((button) => button.addEventListener('click', () => {
@@ -1531,6 +1734,8 @@
       const exam = findExam(checkbox.dataset.examId);
       if (!exam) return showToast('Exam not found.', 'error');
       exam.questionIds = checkbox.checked ? [...new Set([...exam.questionIds, checkbox.dataset.questionId])] : exam.questionIds.filter((id) => id !== checkbox.dataset.questionId);
+      exam.uniqueSetGeneration = false;
+      exam.setQuestionMap = {};
       saveState();
       renderExamManager();
       showToast('Exam question mapping updated.');
@@ -1551,8 +1756,9 @@
       const cqCount = Number(target.querySelector(`[data-auto-cq="${exam.id}"]`)?.value || 0);
       const mode = String(target.querySelector(`[data-auto-mode="${exam.id}"]`)?.value || 'replace');
       const version = String(target.querySelector(`[data-auto-version="${exam.id}"]`)?.value || exam.version || 'Bangla');
+      const uniqueSets = !!target.querySelector(`[data-auto-unique-sets="${exam.id}"]`)?.checked;
       const filtersNow = getQuestionFilters();
-      autoAssignQuestionsToExam(exam, { mcqCount, cqCount, mode, version, filters: filtersNow });
+      autoAssignQuestionsToExam(exam, { mcqCount, cqCount, mode, version, filters: filtersNow, uniqueSets });
       saveState();
       renderExamManager();
     }));
@@ -1579,7 +1785,10 @@
     const cqCount = Math.max(0, Number(options.cqCount || 0));
     const mode = String(options.mode || 'replace');
     const version = String(options.version || exam.version || 'Bangla');
+    const uniqueSets = !!options.uniqueSets;
     const filters = options.filters || {};
+    const safeSetCount = Math.max(1, Math.min(10, Number(exam.setCount || state.settings.printConfig.setCount || 1)));
+    const labelStyle = String(state.settings.printConfig?.setLabelStyle || 'alphabet');
 
     const pool = state.questions.filter((question) => {
       if (exam.subject && question.subject && question.subject !== exam.subject) return false;
@@ -1593,13 +1802,41 @@
 
     const mcqPool = shuffleArray(pool.filter((q) => String(q.type || 'mcq').toLowerCase() !== 'cq'));
     const cqPool = shuffleArray(pool.filter((q) => String(q.type || 'mcq').toLowerCase() === 'cq'));
+    if (uniqueSets) {
+      const needMcq = mcqCount * safeSetCount;
+      const needCq = cqCount * safeSetCount;
+      if (mcqPool.length < needMcq || cqPool.length < needCq) {
+        return showToast(`Unique set generation failed: need ${needMcq} MCQ & ${needCq} CQ, পাওয়া গেছে ${mcqPool.length} MCQ & ${cqPool.length} CQ.`, 'error');
+      }
+      const setQuestionMap = {};
+      const combined = [];
+      for (let setIndex = 0; setIndex < safeSetCount; setIndex += 1) {
+        const setCode = getSetCodeByIndex(setIndex, labelStyle);
+        const fromMcq = mcqPool.slice(setIndex * mcqCount, (setIndex + 1) * mcqCount);
+        const fromCq = cqPool.slice(setIndex * cqCount, (setIndex + 1) * cqCount);
+        const setQuestions = shuffleArray([...fromMcq, ...fromCq]);
+        const ids = setQuestions.map((item) => item.id);
+        setQuestionMap[setCode] = ids;
+        combined.push(...ids);
+      }
+      exam.questionIds = mode === 'append' ? [...new Set([...(exam.questionIds || []), ...combined])] : [...new Set(combined)];
+      exam.uniqueSetGeneration = true;
+      exam.setQuestionMap = setQuestionMap;
+      exam.version = version;
+      return showToast(`Unique set ready: ${safeSetCount} সেটে আলাদা প্রশ্ন বসানো হয়েছে।`);
+    }
+
     const selectedIds = [...mcqPool.slice(0, mcqCount), ...cqPool.slice(0, cqCount)].map((q) => q.id);
-
     if (!selectedIds.length) return showToast('Filter অনুযায়ী কোন প্রশ্ন পাওয়া যায়নি।', 'error');
-
     exam.questionIds = mode === 'append' ? [...new Set([...(exam.questionIds || []), ...selectedIds])] : [...new Set(selectedIds)];
+    exam.uniqueSetGeneration = false;
+    exam.setQuestionMap = {};
     exam.version = version;
     showToast(`Auto assigned: ${selectedIds.length} প্রশ্ন (${Math.min(mcqCount, mcqPool.length)} MCQ, ${Math.min(cqCount, cqPool.length)} CQ).`);
+  }
+
+  function getSetCodeByIndex(setIndex, labelStyle = 'alphabet') {
+    return labelStyle === 'numeric' ? String(setIndex + 1) : String.fromCharCode(65 + setIndex);
   }
 
   function buildInlineManageQuestionEditor(question) {
@@ -1789,9 +2026,14 @@
     const scopedQuestions = questions.filter((question) => !exam.version || String(question.version || 'Bangla') === String(exam.version));
     const safeSetCount = Math.max(1, Math.min(10, Number(exam.setCount || config.setCount || 1)));
     return Array.from({ length: safeSetCount }, (_, setIndex) => {
-      const setCode = config.setLabelStyle === 'numeric' ? String(setIndex + 1) : String.fromCharCode(65 + setIndex);
+      const setCode = getSetCodeByIndex(setIndex, config.setLabelStyle);
       const setLabel = config.setLabelStyle === 'numeric' ? `Set ${setIndex + 1}` : `Set ${setCode}`;
-      const generated = buildQuestionSet(scopedQuestions, config, { seed: `${exam.id}-${setCode}` });
+      const setSpecificIds = exam.uniqueSetGeneration ? (exam.setQuestionMap?.[setCode] || []) : [];
+      const setSpecificQuestions = setSpecificIds
+        .map((id) => questions.find((item) => item.id === id))
+        .filter(Boolean);
+      const source = setSpecificQuestions.length ? setSpecificQuestions : scopedQuestions;
+      const generated = buildQuestionSet(source, config, { seed: `${exam.id}-${setCode}` });
       const { setQuestions, answerKey } = applyLiveLayoutToSet(exam.id, setCode, generated.setQuestions);
       return { setIndex, setCode, setLabel, setQuestions, answerKey, config };
     });
@@ -2366,7 +2608,7 @@
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.header-logo{position:absolute;top:8px;width:56px;height:56px;object-fit:contain}.header-logo--left{left:8px}.header-logo--right{right:8px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.part-heading{break-inside:avoid;page-break-inside:avoid;font-weight:800;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:4px 8px;margin:0 0 6px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.print-question-image{display:block;max-width:100%;max-height:170px;object-fit:contain;border:1px solid #d8dee9;border-radius:8px;background:#fff;margin:6px 0}.print-option-image{display:block;max-width:100%;max-height:62px;object-fit:contain;border:1px solid #d8dee9;border-radius:6px;background:#fff;margin-top:4px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:10px;top:10px;z-index:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-sheet-head{border:1px solid #e2e8f0;border-radius:10px;background:#fdf2f8;padding:8px 10px;margin-bottom:10px}.omr-grid{display:grid;gap:8px 10px;margin-top:10px}.omr-grid--4col{grid-template-columns:repeat(4,minmax(0,1fr))}.omr-column{border:1px solid #f9a8d4;border-radius:8px;padding:6px;background:#fff}.omr-column-head{text-align:center;font-size:11px;font-weight:700;border-bottom:1px solid #fbcfe8;padding-bottom:4px;margin-bottom:4px;color:#9d174d}.omr-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:1px 0}.omr-qno{min-width:24px;font-weight:700;font-size:11px}.omr-bubbles{display:flex;gap:4px}.omr-bubble{width:16px;height:16px;border:1.2px solid #db2777;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#be185d;background:#fff}.omr-bubble.is-correct{background:#fce7f3;border-color:#9d174d}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .header-logo{width:42px;height:42px;top:6px}.compact-mode .question-grid{column-gap:10px}.compact-mode .part-heading{font-size:12px;padding:3px 7px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .print-question-image{max-height:120px;margin:4px 0}.compact-mode .print-option-image{max-height:46px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:14px;height:14px;font-size:8px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.header-logo{position:absolute;top:8px;width:56px;height:56px;object-fit:contain}.header-logo--left{left:8px}.header-logo--right{right:8px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.part-heading{break-inside:avoid;page-break-inside:avoid;font-weight:800;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:4px 8px;margin:0 0 6px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.print-question-image{display:block;max-width:100%;max-height:170px;object-fit:contain;border:1px solid #d8dee9;border-radius:8px;background:#fff;margin:6px 0}.print-option-image{display:block;max-width:100%;max-height:62px;object-fit:contain;border:1px solid #d8dee9;border-radius:6px;background:#fff;margin-top:4px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:10px;top:10px;z-index:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-sheet-head{border:1px solid #e2e8f0;border-radius:10px;background:#fdf2f8;padding:8px 10px;margin-bottom:10px}.omr-grid{display:grid;gap:8px 10px;margin-top:10px}.omr-grid--4col{grid-template-columns:repeat(4,minmax(0,1fr))}.omr-column{border:1px solid #f9a8d4;border-radius:8px;padding:6px;background:#fff}.omr-column-head{text-align:center;font-size:11px;font-weight:700;border-bottom:1px solid #fbcfe8;padding-bottom:4px;margin-bottom:4px;color:#9d174d}.omr-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:1px 0}.omr-qno{min-width:24px;font-weight:700;font-size:11px}.omr-bubbles{display:flex;gap:4px}.omr-bubble{width:16px;height:16px;border:1.2px solid #db2777;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#be185d;background:#fff}.omr-bubble.is-correct{background:#9d174d;border-color:#7a1237;color:#fff;box-shadow:inset 0 0 0 2px #be185d,inset 0 0 0 5px rgba(255,255,255,.28)}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .header-logo{width:42px;height:42px;top:6px}.compact-mode .question-grid{column-gap:10px}.compact-mode .part-heading{font-size:12px;padding:3px 7px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .print-question-image{max-height:120px;margin:4px 0}.compact-mode .print-option-image{max-height:46px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:14px;height:14px;font-size:8px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
   }
 
   function getSolutionPublicUrl(examId) {
