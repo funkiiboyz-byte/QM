@@ -1189,9 +1189,10 @@
   function renderQuestions() {
     const target = document.getElementById('questionList');
     if (!target) return;
-    if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
     const filters = getQuestionListFilters();
     const filtered = getFilteredQuestionList(filters);
+    updateQuestionFilterSummary(filtered.length, state.questions.length);
+    if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
     if (!filtered.length) {
       target.innerHTML = emptyState('No saved question matched current filters.');
       return;
@@ -1214,6 +1215,14 @@
       updateQuestionPreview();
       showToast('Question deleted.');
     }));
+  }
+
+  function updateQuestionFilterSummary(filteredCount, totalCount) {
+    const summary = document.getElementById('qFilterResultCount');
+    if (!summary) return;
+    const safeFiltered = Number.isFinite(filteredCount) ? filteredCount : 0;
+    const safeTotal = Number.isFinite(totalCount) ? totalCount : 0;
+    summary.textContent = `Showing ${safeFiltered} of ${safeTotal} question${safeTotal === 1 ? '' : 's'}`;
   }
 
   function getQuestionListFilters() {
@@ -2566,6 +2575,8 @@
       const qrPayload = encodeURIComponent(solutionUrl);
       const qrBlock = includeSolutionQr ? `<div class="solution-qr solution-qr--paper"><img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${qrPayload}" alt="Solution Download QR" /><span class="solution-qr__hint">Solution QR</span></div>` : '';
       let currentSection = '';
+      const subjectCount = new Set(setQuestions.map((question) => String(question.subject || exam.subject || '').trim()).filter(Boolean)).size;
+      const useSubjectHeading = subjectCount > 1;
       let mcqSerial = 0;
       let cqSerial = 0;
       const list = setQuestions.map((question, index) => {
@@ -2575,10 +2586,13 @@
         const showAnswers = forceAnswers || config.showAnswers;
         const showExplanation = forceExplanation || config.showExplanation;
         const imageBlock = question.image ? `<img class="print-question-image" src="${question.image}" alt="Question image ${index + 1}" />` : '';
-        const sectionHeading = question.section && question.section !== currentSection
-          ? `<div class="part-heading">${escapeHtml(question.section)}</div>`
+        const headingLabel = useSubjectHeading
+          ? String(question.subject || exam.subject || '').trim()
+          : String(question.section || '').trim();
+        const sectionHeading = headingLabel && headingLabel !== currentSection
+          ? `<div class="part-heading">${escapeHtml(headingLabel)}</div>`
           : '';
-        currentSection = question.section || currentSection;
+        currentSection = headingLabel || currentSection;
         const questionBody = question.type === 'cq'
           ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatExplanationForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
           : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span>${(question.optionImages || [])[optionIndex] ? `<div><img class="print-option-image" src="${(question.optionImages || [])[optionIndex]}" alt="Option ${optionIndex + 1}" /></div>` : ''}</li>`).join('')}</ul>${showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '', { subject: displaySubject })}</p>` : ''}`;
@@ -2677,14 +2691,24 @@
       });
       return buckets.flatMap((bucket) => (shouldShuffle ? shuffleArray(bucket.items, rng) : bucket.items));
     };
-    const cqQuestions = clonedQuestions.filter((question) => question.type === 'cq');
-    const mcqQuestions = clonedQuestions.filter((question) => question.type !== 'cq');
-    let setQuestions = [];
-    if (config.shuffleQuestions) {
-      setQuestions = [...arrangeByPart(cqQuestions, true), ...arrangeByPart(mcqQuestions, true)];
-    } else {
-      setQuestions = [...arrangeByPart(cqQuestions, false), ...arrangeByPart(mcqQuestions, false)];
-    }
+    const subjectBuckets = [];
+    const subjectIndex = new Map();
+    clonedQuestions.forEach((question) => {
+      const key = String(question.subject || 'General').trim() || 'General';
+      if (!subjectIndex.has(key)) {
+        subjectIndex.set(key, subjectBuckets.length);
+        subjectBuckets.push({ key, items: [] });
+      }
+      subjectBuckets[subjectIndex.get(key)].items.push(question);
+    });
+    const orderedSubjectBuckets = config.shuffleQuestions ? shuffleArray(subjectBuckets, rng) : subjectBuckets;
+    let setQuestions = orderedSubjectBuckets.flatMap((bucket) => {
+      const cqQuestions = bucket.items.filter((question) => question.type === 'cq');
+      const mcqQuestions = bucket.items.filter((question) => question.type !== 'cq');
+      return config.shuffleQuestions
+        ? [...arrangeByPart(cqQuestions, true), ...arrangeByPart(mcqQuestions, true)]
+        : [...arrangeByPart(cqQuestions, false), ...arrangeByPart(mcqQuestions, false)];
+    });
     const answerKey = [];
     setQuestions = setQuestions.map((question) => {
       if (question.type !== 'mcq') {
@@ -2731,20 +2755,41 @@
   }
 
   function latexToPlainText(text) {
+    const commandMap = {
+      alpha: 'α',
+      beta: 'β',
+      gamma: 'γ',
+      delta: 'δ',
+      theta: 'θ',
+      pi: 'π',
+      mu: 'μ',
+      infty: '∞',
+      times: '×',
+      cdot: '·',
+      div: '÷',
+      pm: '±',
+      leq: '≤',
+      geq: '≥',
+      neq: '≠',
+      sec: 'sec',
+      csc: 'csc',
+      tan: 'tan',
+      cos: 'cos',
+      sin: 'sin',
+      cot: 'cot',
+      log: 'log',
+      ln: 'ln',
+    };
     return String(text || '')
       .replace(/\\\((.*?)\\\)/g, '$1')
       .replace(/\\\[(.*?)\\\]/g, '$1')
       .replace(/\$\$(.*?)\$\$/g, '$1')
       .replace(/\$(.*?)\$/g, '$1')
-      .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '$1/$2')
-      .replace(/\\sqrt\{([^}]*)\}/g, 'sqrt($1)')
-      .replace(/\\times/g, 'x')
-      .replace(/\\cdot/g, '.')
-      .replace(/\\leq/g, '<=')
-      .replace(/\\geq/g, '>=')
-      .replace(/\\neq/g, '!=')
-      .replace(/\\%/g, '%')
-      .replace(/\\[a-zA-Z]+/g, '')
+      .replace(/\\(?:d?frac)\{([^{}]+)\}\{([^{}]+)\}/g, '($1)/($2)')
+      .replace(/\\sqrt\{([^{}]+)\}/g, 'sqrt($1)')
+      .replace(/\\left|\\right/g, '')
+      .replace(/\\([a-zA-Z]+)\b/g, (_, cmd) => commandMap[cmd] ?? cmd)
+      .replace(/\\([&%$#_{}])/g, '$1')
       .replace(/[{}]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -3404,67 +3449,6 @@
       if (!next || next !== confirm) return showToast('Password confirmation failed.', 'error');
       state.credentials.adminPassword = next; saveState(); event.target.reset(); showToast('Password updated.');
     });
-    /**
- * A utility to strip LaTeX commands and convert to plain text.
- * Note: This handles common formatting and math symbols.
- */
-const latexToText = (latex) => {
-  let text = latex;
-
-  // 1. Handle escaped characters (e.g., \{ -> {, \& -> &)
-  text = text.replace(/\\([&%$#_{}])/g, '$1');
-
-  // 2. Remove comments
-  text = text.replace(/%.*$/gm, '');
-
-  // 3. Remove common environments (begin/end blocks)
-  text = text.replace(/\\begin\{.*?\}/g, '');
-  text = text.replace(/\\end\{.*?\}/g, '');
-
-  // 4. Convert specific math symbols/commands to readable equivalents
-  const replacements = [
-    { regex: /\\alpha/g, subst: 'α' },
-    { regex: /\\beta/g, subst: 'β' },
-    { regex: /\\gamma/g, subst: 'γ' },
-    { regex: /\\infty/g, subst: '∞' },
-    { regex: /\\pm/g, subst: '±' },
-    { regex: /\\neq/g, subst: '≠' },
-    { regex: /\\approx/g, subst: '≈' },
-    { regex: /\\times/g, subst: '×' },
-    { regex: /\\div/g, subst: '÷' },
-    { regex: /\\rightarrow/g, subst: '→' }
-  ];
-
-  replacements.forEach(item => {
-    text = text.replace(item.regex, item.subst);
-  });
-
-  // 5. Remove formatting commands but keep the content: \textbf{Hello} -> Hello
-  // This uses a non-greedy match for the content inside braces
-  text = text.replace(/\\[a-zA-Z]+\{(.*?)\}/g, '$1');
-
-  // 6. Handle subscripts (_) and superscripts (^)
-  text = text.replace(/\^\{(.*?)\}/g, '^($1)');
-  text = text.replace(/_\{(.*?)\}/g, '_($1)');
-
-  // 7. Strip remaining backslashes and lone commands
-  text = text.replace(/\\[a-zA-Z]+/g, '');
-
-  // 8. Clean up whitespace
-  return text.trim().replace(/\s\s+/g, ' ');
-};
-
-// --- Example Usage ---
-const sampleLatex = `
-\\section{Introduction}
-The formula for the area of a circle is $A = \\pi r^2$. 
-\\textbf{Note:} If the radius is \\infty, the area is also \\infty.
-`;
-
-console.log("--- Original LaTeX ---");
-console.log(sampleLatex);
-console.log("\n--- Plain Text Output ---");
-console.log(latexToText(sampleLatex));
   }
 
   function parseCommaList(value) { return value.split(',').map((item) => item.trim()).filter(Boolean); }
@@ -3495,11 +3479,17 @@ console.log(latexToText(sampleLatex));
       .replace(/\s+/g, ' ')
       .replace(isPhysics ? /([NnJjMmKkGgSsTtLl])(\d+)(?=[A-Za-z\]\s]|$)/g : /\b([a-zA-Z])(\d+)\b/g, '$1^$2')
       .trim();
-    const withSuperSub = normalized
+    const withDiffFractions = isPhysics
+      ? normalized
+      : normalized
+        .replace(/\bd\^([+\-−]?\d+(?:\.\d+)?)\s*([A-Za-z])\s*\/\s*d([A-Za-z])\^([+\-−]?\d+(?:\.\d+)?)\b/g, '<span class="math-frac"><span class="math-frac__num">d^$1$2</span><span class="math-frac__den">d$3^$4</span></span>')
+        .replace(/\bd\s*([A-Za-z])\s*\/\s*d([A-Za-z])\b/g, '<span class="math-frac"><span class="math-frac__num">d$1</span><span class="math-frac__den">d$2</span></span>');
+    const withSuperSub = withDiffFractions
       .replace(/sqrt\(([^)]+)\)/g, '√$1')
       .replace(/([A-Za-z0-9)\]])\s*\^\s*\(([^)]+)\)/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*\(([^)]+)\)/g, '$1<sub>$2</sub>')
-      .replace(isPhysics ? /([A-Za-z0-9)\]])\s*\^\s*([+\-−]?\d+(?:\.\d+)?)/g : /([A-Za-z0-9)\]])\s*\^\s*([+\-−]?[A-Za-z0-9.]+)/g, '$1<sup>$2</sup>')
+      .replace(/([A-Za-z0-9)\]])\s*\^\s*([+\-−]?\d+(?:\.\d+)?)(?![A-Za-z])/g, '$1<sup>$2</sup>')
+      .replace(/([A-Za-z0-9)\]])\s*\^\s*([A-Za-z])(?![A-Za-z0-9])/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*([A-Za-z0-9.]+)/g, '$1<sub>$2</sub>');
     if (isPhysics) return withSuperSub;
     return withSuperSub.replace(/(?<![\w>])([A-Za-z0-9.+\-]+)\s*\/\s*([A-Za-z0-9.+\-]+)(?![\w<])/g, '<span class="math-frac"><span class="math-frac__num">$1</span><span class="math-frac__den">$2</span></span>');
