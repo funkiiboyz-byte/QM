@@ -2849,8 +2849,7 @@ Validation before final output:
       if (!win) return showToast('Popup blocked by browser.', 'error');
       win.document.write(buildSolutionPaperHtml(examId));
       win.document.close();
-      win.focus();
-      win.print();
+      waitAndPrintMathWindow(win);
     });
   }
 
@@ -3021,14 +3020,60 @@ Validation before final output:
     showToast('Solution paper docs exported.');
   }
 
+  function waitAndPrintMathWindow(win, options = {}) {
+    const timeoutMs = Number(options.timeoutMs || 5000);
+    const renderDelayMs = Number(options.renderDelayMs || 180);
+    const startedAt = Date.now();
+
+    const finalizePrint = () => {
+      if (!win || win.closed) return;
+      win.focus();
+      win.print();
+    };
+
+    const tryRender = () => {
+      if (!win || win.closed) return;
+      const doc = win.document;
+      if (!doc) return setTimeout(tryRender, 40);
+
+      if (doc.readyState !== 'complete') {
+        if (Date.now() - startedAt > timeoutMs) return finalizePrint();
+        return setTimeout(tryRender, 60);
+      }
+
+      if (typeof win.renderMathInElement === 'function') {
+        try {
+          win.renderMathInElement(doc.body, {
+            delimiters: katexDelimiters,
+            throwOnError: false,
+            strict: 'ignore',
+          });
+        } catch (_) {
+          // fallback to printing even if render fails
+        }
+        return setTimeout(finalizePrint, renderDelayMs);
+      }
+
+      if (win.MathJax?.typesetPromise) {
+        return win.MathJax.typesetPromise()
+          .catch(() => null)
+          .finally(() => setTimeout(finalizePrint, renderDelayMs));
+      }
+
+      if (Date.now() - startedAt > timeoutMs) return finalizePrint();
+      return setTimeout(tryRender, 80);
+    };
+
+    setTimeout(tryRender, 40);
+  }
+
   function printExamPaper(examId) {
     if (!findExam(examId)) return showToast('Exam not found.', 'error');
     const win = window.open('', '_blank', 'width=980,height=720');
     if (!win) return showToast('Popup blocked by browser.', 'error');
     win.document.write(buildExamPaperHtml(examId));
     win.document.close();
-    win.focus();
-    win.print();
+    waitAndPrintMathWindow(win);
   }
 
   function buildOmrSheetHtml(examId) {
