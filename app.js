@@ -55,9 +55,11 @@
   let selectedManageExamId = '';
   let activeManageEditQuestionId = '';
   let livePreviewSelectedSet = '';
+  let questionListPage = 1;
   const livePreviewLayouts = new Map();
   let cloudSaveTimer = null;
   let cloudLifecycleBound = false;
+  const QUESTION_LIST_PAGE_SIZE = 50;
 
   document.addEventListener('DOMContentLoaded', () => { init(); });
 
@@ -523,13 +525,18 @@
     }
     resetOptions();
     resetSubQuestions();
-    ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterVersion', 'qFilterType'].forEach((id) => document.getElementById(id)?.addEventListener('change', renderQuestions));
-    document.getElementById('qFilterSearch')?.addEventListener('input', renderQuestions);
+    const rerenderQuestionsFromFirstPage = () => {
+      questionListPage = 1;
+      renderQuestions();
+    };
+    ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterVersion', 'qFilterType'].forEach((id) => document.getElementById(id)?.addEventListener('change', rerenderQuestionsFromFirstPage));
+    document.getElementById('qFilterSearch')?.addEventListener('input', rerenderQuestionsFromFirstPage);
     document.getElementById('qFilterResetBtn')?.addEventListener('click', () => {
       ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterVersion', 'qFilterType', 'qFilterSearch'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
+      questionListPage = 1;
       renderQuestions();
     });
     document.getElementById('qDeleteFilteredBtn')?.addEventListener('click', () => {
@@ -540,6 +547,7 @@
       state.questions = state.questions.filter((item) => !ids.has(item.id));
       state.exams.forEach((exam) => { exam.questionIds = exam.questionIds.filter((id) => !ids.has(id)); });
       saveState();
+      questionListPage = 1;
       renderQuestions();
       showToast(`${matches.length}টি question delete হয়েছে।`);
     });
@@ -983,47 +991,39 @@
       return value;
     };
     const parseFromString = (text) => {
+      const cleaned = String(text || '')
+        .replace(/^```(?:json)?/i, '')
+        .replace(/```$/i, '')
+        .trim()
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .replace(/,\s*([}\]])/g, '$1');
+      const normalizedLayout = normalizeEscapedLayout(cleaned);
+      const normalized = normalizeUnsafeBackslashes(normalizedLayout);
       try {
-        return JSON.parse(text);
+        return JSON.parse(normalized);
       } catch {
-        const cleaned = text
-          .replace(/^```(?:json)?/i, '')
-          .replace(/```$/i, '')
-          .trim()
-          .replace(/[“”]/g, '"')
-          .replace(/[‘’]/g, "'")
-          .replace(/,\s*([}\]])/g, '$1');
-        const normalizedLayout = normalizeEscapedLayout(cleaned);
-        try {
-          return JSON.parse(normalizedLayout);
-        } catch {
-          if (normalizedLayout.startsWith('"') && normalizedLayout.endsWith('"')) {
-            try {
-              const decoded = JSON.parse(normalizedLayout);
-              if (typeof decoded === 'string') return parseFromString(decoded);
-            } catch {
-              // continue with fallback parsing below
-            }
-          }
-          const normalized = normalizeUnsafeBackslashes(normalizedLayout);
+        if (normalized.startsWith('"') && normalized.endsWith('"')) {
           try {
-            return JSON.parse(normalized);
+            const decoded = JSON.parse(normalized);
+            if (typeof decoded === 'string') return parseFromString(decoded);
           } catch {
-            const repairedQuotes = repairUnescapedInnerQuotes(normalized);
-            try {
-              return JSON.parse(repairedQuotes);
-            } catch {
-              const multi = parseConcatenatedJson(repairedQuotes);
-              if (multi) return multi;
-            }
-            const startObject = repairedQuotes.indexOf('{');
-            const startArray = repairedQuotes.indexOf('[');
-            const start = startArray >= 0 && (startArray < startObject || startObject < 0) ? startArray : startObject;
-            const end = Math.max(repairedQuotes.lastIndexOf('}'), repairedQuotes.lastIndexOf(']'));
-            if (start >= 0 && end > start) return JSON.parse(repairedQuotes.slice(start, end + 1));
-            throw new Error('Invalid JSON format.');
+            // continue with fallback parsing below
           }
         }
+        const repairedQuotes = repairUnescapedInnerQuotes(normalized);
+        try {
+          return JSON.parse(repairedQuotes);
+        } catch {
+          const multi = parseConcatenatedJson(repairedQuotes);
+          if (multi) return multi;
+        }
+        const startObject = repairedQuotes.indexOf('{');
+        const startArray = repairedQuotes.indexOf('[');
+        const start = startArray >= 0 && (startArray < startObject || startObject < 0) ? startArray : startObject;
+        const end = Math.max(repairedQuotes.lastIndexOf('}'), repairedQuotes.lastIndexOf(']'));
+        if (start >= 0 && end > start) return JSON.parse(repairedQuotes.slice(start, end + 1));
+        throw new Error('Invalid JSON format.');
       }
     };
 
@@ -1223,16 +1223,26 @@
 
   function renderQuestions() {
     const target = document.getElementById('questionList');
+    const pagination = document.getElementById('questionListPagination');
     if (!target) return;
     const filters = getQuestionListFilters();
     const filtered = getFilteredQuestionList(filters);
     updateQuestionFilterSummary(filtered.length, state.questions.length);
-    if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
-    if (!filtered.length) {
-      target.innerHTML = emptyState('No saved question matched current filters.');
+    if (!state.questions.length) {
+      target.innerHTML = emptyState('No questions created yet.');
+      if (pagination) pagination.innerHTML = '';
       return;
     }
-    target.innerHTML = filtered.map((question) => {
+    if (!filtered.length) {
+      target.innerHTML = emptyState('No saved question matched current filters.');
+      if (pagination) pagination.innerHTML = '';
+      return;
+    }
+    const totalPages = Math.max(1, Math.ceil(filtered.length / QUESTION_LIST_PAGE_SIZE));
+    questionListPage = Math.max(1, Math.min(questionListPage, totalPages));
+    const startIndex = (questionListPage - 1) * QUESTION_LIST_PAGE_SIZE;
+    const pageItems = filtered.slice(startIndex, startIndex + QUESTION_LIST_PAGE_SIZE);
+    target.innerHTML = pageItems.map((question) => {
       const type = String(question.type || 'mcq').toLowerCase();
       const meta = `${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.subject || '')} · ${escapeHtml(question.topic || '')} · ${escapeHtml(question.version || 'Bangla')}`;
       const body = type === 'cq'
@@ -1250,6 +1260,33 @@
       updateQuestionPreview();
       showToast('Question deleted.');
     }));
+    if (pagination) {
+      if (totalPages <= 1) {
+        pagination.innerHTML = '';
+      } else {
+        const startPage = Math.max(1, questionListPage - 2);
+        const endPage = Math.min(totalPages, startPage + 4);
+        const pages = [];
+        for (let page = startPage; page <= endPage; page += 1) {
+          pages.push(`<button type="button" class="toolbar-button ${page === questionListPage ? 'toolbar-button--solid' : ''}" data-q-page="${page}">${page}</button>`);
+        }
+        pagination.innerHTML = `<div class="entity-actions"><button type="button" class="toolbar-button" data-q-nav="prev" ${questionListPage === 1 ? 'disabled' : ''}>Prev</button>${pages.join('')}<button type="button" class="toolbar-button" data-q-nav="next" ${questionListPage === totalPages ? 'disabled' : ''}>Next</button><span class="muted-copy">Page ${questionListPage} / ${totalPages}</span></div>`;
+        pagination.querySelectorAll('[data-q-page]').forEach((button) => button.addEventListener('click', () => {
+          questionListPage = Number(button.dataset.qPage || 1);
+          renderQuestions();
+        }));
+        pagination.querySelector('[data-q-nav="prev"]')?.addEventListener('click', () => {
+          if (questionListPage <= 1) return;
+          questionListPage -= 1;
+          renderQuestions();
+        });
+        pagination.querySelector('[data-q-nav="next"]')?.addEventListener('click', () => {
+          if (questionListPage >= totalPages) return;
+          questionListPage += 1;
+          renderQuestions();
+        });
+      }
+    }
   }
 
   function updateQuestionFilterSummary(filteredCount, totalCount) {
