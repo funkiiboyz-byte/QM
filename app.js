@@ -3589,6 +3589,22 @@
       .filter((line) => line.trim().length > 0)
       .join('<br />');
   }
+  function hasLatexSyntax(text = '') {
+    return /\\[a-zA-Z]+|\\\(|\\\)|\\\[|\\\]|\$\$|\$[^$]+\$/.test(String(text || ''));
+  }
+
+  function wrapMathJaxInline(text = '') {
+    const cleaned = String(text || '')
+      .trim()
+      .replace(/^\$\$(.*)\$\$$/s, '$1')
+      .replace(/^\$(.*)\$$/s, '$1')
+      .replace(/^\\\((.*)\\\)$/s, '$1')
+      .replace(/^\\\[(.*)\\\]$/s, '$1')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    return `<span class="math-tex">\\(${cleaned}\\)</span>`;
+  }
+
   function formatMathForDisplay(text, options = {}) {
     const raw = String(text || '');
     const subject = String(options.subject || '').toLowerCase();
