@@ -2099,6 +2099,24 @@ Validation before final output:
     }
     renderLivePrintPreview(exam);
     holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button type="button" class="toolbar-button ${exam.published ? 'toolbar-button--success' : ''}" data-sidebar-publish="${exam.id}">${exam.published ? 'Published' : 'Publish'}</button><button type="button" class="toolbar-button ${exam.solutionPublished ? 'toolbar-button--success' : ''}" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Published' : 'Solution Publish'}</button><button type="button" class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button type="button" class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button type="button" class="toolbar-button" data-sidebar-question-docs="${exam.id}">Question Paper Docs</button><button type="button" class="toolbar-button" data-sidebar-solution-docs="${exam.id}">Solution Paper Docs</button><button type="button" class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button type="button" class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
+
+    const refreshPublishUi = (item) => {
+      const publishBtn = holder.querySelector('[data-sidebar-publish]');
+      if (publishBtn) {
+        publishBtn.textContent = item.published ? 'Published' : 'Publish';
+        publishBtn.classList.toggle('toolbar-button--success', !!item.published);
+      }
+      const solutionPublishBtn = holder.querySelector('[data-sidebar-solution-publish]');
+      if (solutionPublishBtn) {
+        solutionPublishBtn.textContent = item.solutionPublished ? 'Solution Published' : 'Solution Publish';
+        solutionPublishBtn.classList.toggle('toolbar-button--success', !!item.solutionPublished);
+      }
+      const statusPill = document.querySelector('#examManagerList .status-pill');
+      if (statusPill) {
+        statusPill.textContent = item.published ? 'Published' : 'Draft';
+        statusPill.classList.toggle('is-live', !!item.published);
+      }
+    };
     holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', (event) => {
       event.preventDefault();
       const examId = event.currentTarget?.dataset?.sidebarPublish || exam.id;
@@ -2119,8 +2137,8 @@ Validation before final output:
         delete item.publishedAt;
         delete item.publishedSnapshot;
       }
+      refreshPublishUi(item);
       saveState();
-      renderExamManager();
       showToast(item.published ? 'Exam published.' : 'Exam unpublished.');
     });
     holder.querySelector('[data-sidebar-delete]')?.addEventListener('click', () => {
@@ -2144,8 +2162,8 @@ Validation before final output:
       item.solutionPublished = !item.solutionPublished;
       if (item.solutionPublished) item.solutionPublishedAt = new Date().toISOString();
       else delete item.solutionPublishedAt;
+      refreshPublishUi(item);
       saveState();
-      renderExamManager();
       showToast(item.solutionPublished ? 'Solution link published.' : 'Solution link unpublished.');
     });
   }
