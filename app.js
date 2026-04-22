@@ -1708,7 +1708,9 @@ Validation before final output:
     const answerKey = [];
     renderedQuestions.forEach((entry) => {
       if (entry.question.type !== 'mcq') return;
-      const optionIndex = entry.optionsOrder[Number(entry.question.correct) || 0] ?? 0;
+      const correctSourceIndex = Number(entry.question.correct) || 0;
+      const displayIndex = entry.optionsOrder.findIndex((sourceIndex) => sourceIndex === correctSourceIndex);
+      const optionIndex = displayIndex >= 0 ? displayIndex : 0;
       answerKey.push(String.fromCharCode(65 + optionIndex));
     });
     let previewMcqNo = 0;
@@ -2125,20 +2127,22 @@ Validation before final output:
       item.published = !item.published;
       if (item.published) {
         item.publishedAt = new Date().toISOString();
-        item.publishedSnapshot = {
-          config: structuredClone(state.settings.printConfig),
-          questions: (item.questionIds || []).map((id) => state.questions.find((question) => question.id === id)).filter(Boolean).map((question) => ({
-            ...question,
-            options: [...(question.options || [])],
-            subQuestions: (question.subQuestions || []).map((sub) => ({ ...sub })),
-          })),
-        };
+        item.publishedSnapshot = { config: structuredClone(state.settings.printConfig), questions: [] };
       } else {
         delete item.publishedAt;
         delete item.publishedSnapshot;
       }
       refreshPublishUi(item);
       saveState();
+      if (item.published) {
+        const publishedExamId = item.id;
+        setTimeout(() => {
+          const liveExam = findExam(publishedExamId);
+          if (!liveExam || !liveExam.published) return;
+          liveExam.publishedSnapshot = buildPublishedSnapshot(liveExam);
+          saveState();
+        }, 0);
+      }
       showToast(item.published ? 'Exam published.' : 'Exam unpublished.');
     });
     holder.querySelector('[data-sidebar-delete]')?.addEventListener('click', () => {
@@ -2850,6 +2854,20 @@ Validation before final output:
       forceExplanation: true,
       disableAnswerSheet: true,
     });
+  }
+
+  function buildPublishedSnapshot(examItem) {
+    return {
+      config: structuredClone(state.settings.printConfig),
+      questions: (examItem.questionIds || [])
+        .map((id) => state.questions.find((question) => question.id === id))
+        .filter(Boolean)
+        .map((question) => ({
+          ...question,
+          options: [...(question.options || [])],
+          subQuestions: (question.subQuestions || []).map((sub) => ({ ...sub })),
+        })),
+    };
   }
 
   function initSolutionDownloadPage() {
