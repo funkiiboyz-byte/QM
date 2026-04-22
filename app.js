@@ -2898,6 +2898,7 @@
       cos: 'cos',
       sin: 'sin',
       cot: 'cot',
+      int: '∫',
       log: 'log',
       ln: 'ln',
     };
@@ -3631,7 +3632,9 @@
       .replace(/([A-Za-z0-9)\]])\s*\^\s*([A-Za-z])(?![A-Za-z0-9])/g, '$1<sup>$2</sup>')
       .replace(/([A-Za-z0-9)\]])\s*_\s*([A-Za-z0-9.]+)/g, '$1<sub>$2</sub>');
     if (isPhysics) return withSuperSub;
-    return withSuperSub.replace(/(?<![\w>])([A-Za-z0-9.+\-]+)\s*\/\s*([A-Za-z0-9.+\-]+)(?![\w<])/g, '<span class="math-frac"><span class="math-frac__num">$1</span><span class="math-frac__den">$2</span></span>');
+    return withSuperSub
+      .replace(/\(([^()]+)\)\s*\/\s*\(([^()]+)\)/g, '<span class="math-frac"><span class="math-frac__num">$1</span><span class="math-frac__den">$2</span></span>')
+      .replace(/(?<![\w>])([A-Za-z0-9.+\-]+)\s*\/\s*([A-Za-z0-9.+\-]+)(?![\w<])/g, '<span class="math-frac"><span class="math-frac__num">$1</span><span class="math-frac__den">$2</span></span>');
   }
   function emptyState(message) { return `<div class="empty-state"><p>${escapeHtml(message)}</p></div>`; }
   function escapeHtml(value = '') { return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
