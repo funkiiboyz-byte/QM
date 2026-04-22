@@ -853,7 +853,41 @@
   }
 
   function parseJsonImportPayload(raw) {
-    const normalizeUnsafeBackslashes = (text) => String(text || '').replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+    const normalizeUnsafeBackslashes = (text) => {
+      const input = String(text || '');
+      let out = '';
+      let inString = false;
+      let escaped = false;
+      for (let i = 0; i < input.length; i += 1) {
+        const ch = input[i];
+        if (!inString) {
+          if (ch === '"') inString = true;
+          out += ch;
+          escaped = false;
+          continue;
+        }
+        if (escaped) {
+          out += ch;
+          escaped = false;
+          continue;
+        }
+        if (ch === '\\') {
+          const next = input[i + 1] || '';
+          const unicodeSeq = next === 'u' && /^[0-9a-fA-F]{4}$/.test(input.slice(i + 2, i + 6));
+          const safeJsonEscape = next === '"' || next === '\\' || next === '/' || unicodeSeq;
+          if (safeJsonEscape) {
+            out += ch;
+            escaped = true;
+          } else {
+            out += '\\\\';
+          }
+          continue;
+        }
+        if (ch === '"') inString = false;
+        out += ch;
+      }
+      return out;
+    };
     const normalizeEscapedLayout = (text) => String(text || '').replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
     const repairUnescapedInnerQuotes = (text) => {
       const input = String(text || '');
