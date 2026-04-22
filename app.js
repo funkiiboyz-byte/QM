@@ -1287,6 +1287,7 @@
         });
       }
     }
+    queueTypeset();
   }
 
   function updateQuestionFilterSummary(filteredCount, totalCount) {
@@ -2910,6 +2911,7 @@
       .replace(/\\left|\\right/g, '')
       .replace(/\\([a-zA-Z]+)\b/g, (_, cmd) => commandMap[cmd] ?? cmd)
       .replace(/\\([&%$#_{}])/g, '$1')
+      .replace(/\\[()[\]]/g, '')
       .replace(/[{}]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -3605,7 +3607,6 @@
 
   function formatMathForDisplay(text, options = {}) {
     const raw = String(text || '');
-    if (hasLatexSyntax(raw)) return wrapMathJaxInline(raw);
     const subject = String(options.subject || '').toLowerCase();
     const isPhysics = subject.includes('physics') || subject.includes('পদার্থ');
     const normalized = escapeHtml(latexToPlainText(raw))
