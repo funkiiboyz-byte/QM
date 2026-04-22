@@ -1453,6 +1453,15 @@ body.theme-dark .summary-card {
   display: inline;
 }
 
+
+.katex {
+  font-size: 1.05em;
+}
+
+.katex-display {
+  margin: 0.5em 0;
+}
+
 .app-form {
   display: grid;
   gap: 16px;
