@@ -2098,7 +2098,7 @@ Validation before final output:
       return;
     }
     renderLivePrintPreview(exam);
-    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button type="button" class="toolbar-button ${exam.published ? 'toolbar-button--success' : ''}" data-sidebar-publish="${exam.id}">${exam.published ? 'Published' : 'Publish'}</button><button type="button" class="toolbar-button ${exam.solutionPublished ? 'toolbar-button--success' : ''}" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Published' : 'Solution Publish'}</button><button type="button" class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button type="button" class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button type="button" class="toolbar-button" data-sidebar-question-docs="${exam.id}">Question Paper Docs</button><button type="button" class="toolbar-button" data-sidebar-solution-docs="${exam.id}">Solution Paper Docs</button><button type="button" class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button type="button" class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
+    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button type="button" class="toolbar-button ${exam.published ? 'toolbar-button--success' : ''}" data-sidebar-publish="${exam.id}">${exam.published ? 'Published' : 'Publish'}</button><button type="button" class="toolbar-button ${exam.solutionPublished ? 'toolbar-button--success' : ''}" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Published' : 'Solution Publish'}</button><button type="button" class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button type="button" class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button type="button" class="toolbar-button" data-sidebar-solution-download="${exam.id}">Solution Download</button><button type="button" class="toolbar-button" data-sidebar-question-docs="${exam.id}">Question Paper Docs</button><button type="button" class="toolbar-button" data-sidebar-solution-docs="${exam.id}">Solution Paper Docs</button><button type="button" class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button type="button" class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
 
     const refreshPublishUi = (item) => {
       const publishBtn = holder.querySelector('[data-sidebar-publish]');
@@ -2139,6 +2139,7 @@ Validation before final output:
       }
       refreshPublishUi(item);
       saveState();
+      syncStateToCloud({ retries: 3 });
       showToast(item.published ? 'Exam published.' : 'Exam unpublished.');
     });
     holder.querySelector('[data-sidebar-delete]')?.addEventListener('click', () => {
@@ -2151,6 +2152,9 @@ Validation before final output:
     });
     holder.querySelector('[data-sidebar-download]')?.addEventListener('click', () => downloadExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print]')?.addEventListener('click', () => printExamPaper(exam.id));
+    holder.querySelector('[data-sidebar-solution-download]')?.addEventListener('click', () => {
+      window.open(getSolutionPublicUrl(exam.id), '_blank', 'noopener,noreferrer');
+    });
     holder.querySelector('[data-sidebar-question-docs]')?.addEventListener('click', () => downloadExamPaperDocs(exam.id));
     holder.querySelector('[data-sidebar-solution-docs]')?.addEventListener('click', () => downloadSolutionPaperDocs(exam.id));
     holder.querySelector('[data-sidebar-print-omr]')?.addEventListener('click', () => printOmrSheet(exam.id));
@@ -2164,6 +2168,7 @@ Validation before final output:
       else delete item.solutionPublishedAt;
       refreshPublishUi(item);
       saveState();
+      syncStateToCloud({ retries: 3 });
       showToast(item.solutionPublished ? 'Solution link published.' : 'Solution link unpublished.');
     });
   }
@@ -3027,11 +3032,31 @@ Validation before final output:
     URL.revokeObjectURL(url);
   }
 
+  function buildStaticMathHtmlDocument(htmlContent) {
+    if (!htmlContent || typeof DOMParser === 'undefined') return htmlContent;
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(String(htmlContent), 'text/html');
+      if (typeof window.renderMathInElement === 'function' && doc.body) {
+        window.renderMathInElement(doc.body, {
+          delimiters: katexDelimiters,
+          throwOnError: false,
+          strict: 'ignore',
+        });
+      }
+      doc.querySelectorAll('script').forEach((node) => node.remove());
+      return `<!DOCTYPE html>${doc.documentElement.outerHTML}`;
+    } catch {
+      return htmlContent;
+    }
+  }
+
   function downloadExamPaperDocs(examId) {
     const exam = findExam(examId);
     if (!exam) return showToast('Exam not found.', 'error');
     const filename = `${exam.title.replace(/\s+/g, '-').toLowerCase() || 'question-paper'}.doc`;
-    downloadAsDocFile(filename, buildExamPaperHtml(examId, { includeSolutionQr: false }));
+    const html = buildStaticMathHtmlDocument(buildExamPaperHtml(examId, { includeSolutionQr: false }));
+    downloadAsDocFile(filename, html);
     showToast('Question paper docs exported.');
   }
 
@@ -3039,7 +3064,8 @@ Validation before final output:
     const exam = findExam(examId);
     if (!exam) return showToast('Exam not found.', 'error');
     const filename = `${exam.title.replace(/\s+/g, '-').toLowerCase() || 'solution-paper'}-solution.doc`;
-    downloadAsDocFile(filename, buildSolutionPaperHtml(examId));
+    const html = buildStaticMathHtmlDocument(buildSolutionPaperHtml(examId));
+    downloadAsDocFile(filename, html);
     showToast('Solution paper docs exported.');
   }
 
