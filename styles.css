@@ -1449,6 +1449,10 @@ body.theme-dark .summary-card {
   padding: 0.05em 0.18em 0;
 }
 
+.math-tex {
+  display: inline;
+}
+
 .app-form {
   display: grid;
   gap: 16px;
