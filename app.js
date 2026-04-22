@@ -39,6 +39,7 @@
         shuffleOptions: true,
         includeAnswerSheet: true,
         compactMode: true,
+        showTopicHeading: true,
       },
     },
   };
@@ -54,9 +55,11 @@
   let selectedManageExamId = '';
   let activeManageEditQuestionId = '';
   let livePreviewSelectedSet = '';
+  let questionListPage = 1;
   const livePreviewLayouts = new Map();
   let cloudSaveTimer = null;
   let cloudLifecycleBound = false;
+  const QUESTION_LIST_PAGE_SIZE = 50;
 
   document.addEventListener('DOMContentLoaded', () => { init(); });
 
@@ -522,13 +525,18 @@
     }
     resetOptions();
     resetSubQuestions();
-    ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterVersion', 'qFilterType'].forEach((id) => document.getElementById(id)?.addEventListener('change', renderQuestions));
-    document.getElementById('qFilterSearch')?.addEventListener('input', renderQuestions);
+    const rerenderQuestionsFromFirstPage = () => {
+      questionListPage = 1;
+      renderQuestions();
+    };
+    ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterVersion', 'qFilterType'].forEach((id) => document.getElementById(id)?.addEventListener('change', rerenderQuestionsFromFirstPage));
+    document.getElementById('qFilterSearch')?.addEventListener('input', rerenderQuestionsFromFirstPage);
     document.getElementById('qFilterResetBtn')?.addEventListener('click', () => {
       ['qFilterLevel', 'qFilterGroup', 'qFilterSubject', 'qFilterTopic', 'qFilterVersion', 'qFilterType', 'qFilterSearch'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
+      questionListPage = 1;
       renderQuestions();
     });
     document.getElementById('qDeleteFilteredBtn')?.addEventListener('click', () => {
@@ -539,6 +547,7 @@
       state.questions = state.questions.filter((item) => !ids.has(item.id));
       state.exams.forEach((exam) => { exam.questionIds = exam.questionIds.filter((id) => !ids.has(id)); });
       saveState();
+      questionListPage = 1;
       renderQuestions();
       showToast(`${matches.length}টি question delete হয়েছে।`);
     });
@@ -582,7 +591,7 @@
     const languageInstruction = payload.version === 'English'
       ? 'All question text, options, and answers MUST be in English only.'
       : 'সব question text, option, answer এবং explanation অবশ্যই শুদ্ধ বাংলায় হবে।';
-    document.getElementById('jsonPromptText').value = `Generate strictly valid JSON for direct import into a Question Bank.\nReturn JSON only. No markdown, no comments, no code fences.\nHard constraints:\n1) Use exactly one root key: {"questions":[ ... ]}\n2) Every object must include: type, level, group, subject, topic, version\n3) version must be exactly "${payload.version}"\n4) ${languageInstruction}\n5) Do not leave empty strings.\n6) Keep curriculum aligned with:\n   level="${payload.level}", group="${payload.group}", subject="${payload.subject}", topic="${payload.topic}"\n7) Difficulty target: "${payload.difficulty}"\n8) For multiline text use literal \\\\n in JSON (especially CQ answers/explanations)\n\nIf questionType is MCQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "question": "single clear stem",\n      "options": ["opt A", "opt B", "opt C", "opt D"],\n      "answer": "A",\n      "explanation": "4-6 short lines with \\\\n separators"\n    }\n  ]\n}\n\nIf questionType is CQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "stimulus": "clear passage/context",\n      "subQuestions": [\n        { "label": "A", "prompt": "part A prompt", "answer": "accurate answer A\\\\nsecond line if needed" },\n        { "label": "B", "prompt": "part B prompt", "answer": "accurate answer B\\\\nsecond line if needed" },\n        { "label": "C", "prompt": "part C prompt", "answer": "accurate answer C\\\\nsecond line if needed" }\n      ]\n    }\n  ]\n}\n\nValidation before final output:\n- JSON parses without error\n- MCQ has exactly 4 options\n- answer must be one of A/B/C/D\n- CQ must include at least 2 subQuestions with non-empty prompt+answer`;
+    document.getElementById('jsonPromptText').value = `Generate strictly valid JSON for direct import into a Question Bank.\nReturn JSON only. No markdown, no comments, no code fences.\nHard constraints:\n1) Use exactly one root key: {"questions":[ ... ]}\n2) Every object must include: type, level, group, subject, topic, version\n3) version must be exactly "${payload.version}"\n4) ${languageInstruction}\n5) Do not leave empty strings.\n6) Keep curriculum aligned with:\n   level="${payload.level}", group="${payload.group}", subject="${payload.subject}", topic="${payload.topic}"\n7) Difficulty target: "${payload.difficulty}"\n8) For multiline text use literal \\\\n in JSON (especially CQ answers/explanations)\n9) For mathematics use LaTeX directly (example: \\\\int, \\\\frac{a}{b}, \\\\sqrt{x}, x^2, \\\\tan^{-1}x). Backslash commands must remain in JSON string.\n\nIf questionType is MCQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "question": "single clear stem (LaTeX allowed)",\n      "options": ["opt A", "opt B", "opt C", "opt D"],\n      "answer": "A",\n      "explanation": "4-6 short lines with \\\\n separators (LaTeX allowed)"\n    }\n  ]\n}\n\nIf questionType is CQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "stimulus": "clear passage/context (LaTeX allowed)",\n      "subQuestions": [\n        { "label": "A", "prompt": "part A prompt", "answer": "accurate answer A\\\\nsecond line if needed" },\n        { "label": "B", "prompt": "part B prompt", "answer": "accurate answer B\\\\nsecond line if needed" },\n        { "label": "C", "prompt": "part C prompt", "answer": "accurate answer C\\\\nsecond line if needed" }\n      ]\n    }\n  ]\n}\n\nValidation before final output:\n- JSON parses without error\n- MCQ has exactly 4 options\n- answer must be one of A/B/C/D\n- CQ must include at least 2 subQuestions with non-empty prompt+answer`;
     showToast('Curriculum prompt generated.');
   }
 
@@ -852,8 +861,42 @@
   }
 
   function parseJsonImportPayload(raw) {
-    const normalizeUnsafeBackslashes = (text) => String(text || '').replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
-    const normalizeEscapedLayout = (text) => String(text || '').replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+    const normalizeUnsafeBackslashes = (text) => {
+      const input = String(text || '');
+      let out = '';
+      let inString = false;
+      let escaped = false;
+      for (let i = 0; i < input.length; i += 1) {
+        const ch = input[i];
+        if (!inString) {
+          if (ch === '"') inString = true;
+          out += ch;
+          escaped = false;
+          continue;
+        }
+        if (escaped) {
+          out += ch;
+          escaped = false;
+          continue;
+        }
+        if (ch === '\\') {
+          const next = input[i + 1] || '';
+          const unicodeSeq = next === 'u' && /^[0-9a-fA-F]{4}$/.test(input.slice(i + 2, i + 6));
+          const safeJsonEscape = next === '"' || next === '\\' || next === '/' || unicodeSeq;
+          if (safeJsonEscape) {
+            out += ch;
+            escaped = true;
+          } else {
+            out += '\\\\';
+          }
+          continue;
+        }
+        if (ch === '"') inString = false;
+        out += ch;
+      }
+      return out;
+    };
+    const normalizeEscapedLayout = (text) => String(text || '').replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');
     const repairUnescapedInnerQuotes = (text) => {
       const input = String(text || '');
       let out = '';
@@ -948,47 +991,39 @@
       return value;
     };
     const parseFromString = (text) => {
+      const cleaned = String(text || '')
+        .replace(/^```(?:json)?/i, '')
+        .replace(/```$/i, '')
+        .trim()
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .replace(/,\s*([}\]])/g, '$1');
+      const normalizedLayout = normalizeEscapedLayout(cleaned);
+      const normalized = normalizeUnsafeBackslashes(normalizedLayout);
       try {
-        return JSON.parse(text);
+        return JSON.parse(normalized);
       } catch {
-        const cleaned = text
-          .replace(/^```(?:json)?/i, '')
-          .replace(/```$/i, '')
-          .trim()
-          .replace(/[“”]/g, '"')
-          .replace(/[‘’]/g, "'")
-          .replace(/,\s*([}\]])/g, '$1');
-        const normalizedLayout = normalizeEscapedLayout(cleaned);
-        try {
-          return JSON.parse(normalizedLayout);
-        } catch {
-          if (normalizedLayout.startsWith('"') && normalizedLayout.endsWith('"')) {
-            try {
-              const decoded = JSON.parse(normalizedLayout);
-              if (typeof decoded === 'string') return parseFromString(decoded);
-            } catch {
-              // continue with fallback parsing below
-            }
-          }
-          const normalized = normalizeUnsafeBackslashes(normalizedLayout);
+        if (normalized.startsWith('"') && normalized.endsWith('"')) {
           try {
-            return JSON.parse(normalized);
+            const decoded = JSON.parse(normalized);
+            if (typeof decoded === 'string') return parseFromString(decoded);
           } catch {
-            const repairedQuotes = repairUnescapedInnerQuotes(normalized);
-            try {
-              return JSON.parse(repairedQuotes);
-            } catch {
-              const multi = parseConcatenatedJson(repairedQuotes);
-              if (multi) return multi;
-            }
-            const startObject = repairedQuotes.indexOf('{');
-            const startArray = repairedQuotes.indexOf('[');
-            const start = startArray >= 0 && (startArray < startObject || startObject < 0) ? startArray : startObject;
-            const end = Math.max(repairedQuotes.lastIndexOf('}'), repairedQuotes.lastIndexOf(']'));
-            if (start >= 0 && end > start) return JSON.parse(repairedQuotes.slice(start, end + 1));
-            throw new Error('Invalid JSON format.');
+            // continue with fallback parsing below
           }
         }
+        const repairedQuotes = repairUnescapedInnerQuotes(normalized);
+        try {
+          return JSON.parse(repairedQuotes);
+        } catch {
+          const multi = parseConcatenatedJson(repairedQuotes);
+          if (multi) return multi;
+        }
+        const startObject = repairedQuotes.indexOf('{');
+        const startArray = repairedQuotes.indexOf('[');
+        const start = startArray >= 0 && (startArray < startObject || startObject < 0) ? startArray : startObject;
+        const end = Math.max(repairedQuotes.lastIndexOf('}'), repairedQuotes.lastIndexOf(']'));
+        if (start >= 0 && end > start) return JSON.parse(repairedQuotes.slice(start, end + 1));
+        throw new Error('Invalid JSON format.');
       }
     };
 
@@ -1188,16 +1223,26 @@
 
   function renderQuestions() {
     const target = document.getElementById('questionList');
+    const pagination = document.getElementById('questionListPagination');
     if (!target) return;
     const filters = getQuestionListFilters();
     const filtered = getFilteredQuestionList(filters);
     updateQuestionFilterSummary(filtered.length, state.questions.length);
-    if (!state.questions.length) return target.innerHTML = emptyState('No questions created yet.');
-    if (!filtered.length) {
-      target.innerHTML = emptyState('No saved question matched current filters.');
+    if (!state.questions.length) {
+      target.innerHTML = emptyState('No questions created yet.');
+      if (pagination) pagination.innerHTML = '';
       return;
     }
-    target.innerHTML = filtered.map((question) => {
+    if (!filtered.length) {
+      target.innerHTML = emptyState('No saved question matched current filters.');
+      if (pagination) pagination.innerHTML = '';
+      return;
+    }
+    const totalPages = Math.max(1, Math.ceil(filtered.length / QUESTION_LIST_PAGE_SIZE));
+    questionListPage = Math.max(1, Math.min(questionListPage, totalPages));
+    const startIndex = (questionListPage - 1) * QUESTION_LIST_PAGE_SIZE;
+    const pageItems = filtered.slice(startIndex, startIndex + QUESTION_LIST_PAGE_SIZE);
+    target.innerHTML = pageItems.map((question) => {
       const type = String(question.type || 'mcq').toLowerCase();
       const meta = `${escapeHtml(question.level || '')} · ${escapeHtml(question.group || '')} · ${escapeHtml(question.subject || '')} · ${escapeHtml(question.topic || '')} · ${escapeHtml(question.version || 'Bangla')}`;
       const body = type === 'cq'
@@ -1215,6 +1260,34 @@
       updateQuestionPreview();
       showToast('Question deleted.');
     }));
+    if (pagination) {
+      if (totalPages <= 1) {
+        pagination.innerHTML = '';
+      } else {
+        const startPage = Math.max(1, questionListPage - 2);
+        const endPage = Math.min(totalPages, startPage + 4);
+        const pages = [];
+        for (let page = startPage; page <= endPage; page += 1) {
+          pages.push(`<button type="button" class="toolbar-button ${page === questionListPage ? 'toolbar-button--solid' : ''}" data-q-page="${page}">${page}</button>`);
+        }
+        pagination.innerHTML = `<div class="entity-actions"><button type="button" class="toolbar-button" data-q-nav="prev" ${questionListPage === 1 ? 'disabled' : ''}>Prev</button>${pages.join('')}<button type="button" class="toolbar-button" data-q-nav="next" ${questionListPage === totalPages ? 'disabled' : ''}>Next</button><span class="muted-copy">Page ${questionListPage} / ${totalPages}</span></div>`;
+        pagination.querySelectorAll('[data-q-page]').forEach((button) => button.addEventListener('click', () => {
+          questionListPage = Number(button.dataset.qPage || 1);
+          renderQuestions();
+        }));
+        pagination.querySelector('[data-q-nav="prev"]')?.addEventListener('click', () => {
+          if (questionListPage <= 1) return;
+          questionListPage -= 1;
+          renderQuestions();
+        });
+        pagination.querySelector('[data-q-nav="next"]')?.addEventListener('click', () => {
+          if (questionListPage >= totalPages) return;
+          questionListPage += 1;
+          renderQuestions();
+        });
+      }
+    }
+    queueTypeset();
   }
 
   function updateQuestionFilterSummary(filteredCount, totalCount) {
@@ -1439,7 +1512,7 @@
         renderLivePrintPreview(findExam(selectedManageExamId));
       });
     });
-    ['printShowAnswers', 'printShowExplanation', 'printShuffleQuestions', 'printShuffleOptions', 'printAnswerSheet', 'printCompactMode'].forEach((id) => {
+    ['printShowAnswers', 'printShowExplanation', 'printShuffleQuestions', 'printShuffleOptions', 'printAnswerSheet', 'printCompactMode', 'printShowTopicHeading'].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
       const keyMap = {
@@ -1449,6 +1522,7 @@
         printShuffleOptions: 'shuffleOptions',
         printAnswerSheet: 'includeAnswerSheet',
         printCompactMode: 'compactMode',
+        printShowTopicHeading: 'showTopicHeading',
       };
       const key = keyMap[id];
       el.checked = !!config[key];
@@ -1502,7 +1576,46 @@
     const preview = document.getElementById('printPreviewMeta');
     if (!preview) return;
     const config = state.settings.printConfig;
-    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Paper: ${escapeHtml(config.paperTitle || '(Use exam title)')} · ${escapeHtml(config.paperSubject || '(Use exam subject)')}</p><p>Date/Type: ${escapeHtml(config.paperDate || '(Use exam date)')} · ${escapeHtml(config.paperType || '(Use exam type)')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Theme: ${escapeHtml(config.headerTheme || 'classic')} · Left Logo: ${config.leftLogo ? 'Yes' : 'No'} · Right Logo: ${config.rightLogo ? 'Yes' : 'No'}</p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)} · Compact: ${config.compactMode ? 'On' : 'Off'}</p></div>`;
+    preview.innerHTML = `<div class="preview-block"><h4>${escapeHtml(config.headerTitle)}</h4><p>Code: ${escapeHtml(config.examCode || 'N/A')} · ${escapeHtml(config.classLabel || '')}</p><p>Paper: ${escapeHtml(config.paperTitle || '(Use exam title)')} · ${escapeHtml(config.paperSubject || '(Use exam subject)')}</p><p>Date/Type: ${escapeHtml(config.paperDate || '(Use exam date)')} · ${escapeHtml(config.paperType || '(Use exam type)')}</p><p>Time: ${escapeHtml(config.durationLabel || '')} · Marks: ${escapeHtml(config.marksLabel || '')}</p><p>Theme: ${escapeHtml(config.headerTheme || 'classic')} · Left Logo: ${config.leftLogo ? 'Yes' : 'No'} · Right Logo: ${config.rightLogo ? 'Yes' : 'No'}</p><p>Sets: ${escapeHtml(String(config.setCount || 1))} · Shuffle Q: ${config.shuffleQuestions ? 'Yes' : 'No'} · Shuffle Opt: ${config.shuffleOptions ? 'Yes' : 'No'}</p><p>Answer Sheet: ${config.includeAnswerSheet ? 'On' : 'Off'} · Columns: ${escapeHtml(config.columns)} · Compact: ${config.compactMode ? 'On' : 'Off'} · Topic Heading: ${config.showTopicHeading ? 'On' : 'Off'}</p></div>`;
+  }
+
+  function getPaperLabels(version = 'Bangla') {
+    const isBangla = String(version || 'Bangla').toLowerCase() === 'bangla';
+    return isBangla
+      ? {
+        qr: 'কিউআর',
+        version: 'ভার্সন',
+        time: 'সময়',
+        subject: 'বিষয়',
+        class: 'শ্রেণি',
+        fullMarks: 'পূর্ণমান',
+        subjectCode: 'বিষয় কোড',
+        setCode: 'সেট কোড',
+      }
+      : {
+        qr: 'QR',
+        version: 'Version',
+        time: 'Time',
+        subject: 'Subject',
+        class: 'Class',
+        fullMarks: 'Full Marks',
+        subjectCode: 'Subject Code',
+        setCode: 'Set Code',
+      };
+  }
+
+  function buildPaperHeader({ exam, config, setLabel, setCode = '', includeQr = true, solutionUrl = '' }) {
+    const labels = getPaperLabels(exam?.version || 'Bangla');
+    const qrPayload = encodeURIComponent(solutionUrl || '');
+    const qrCard = includeQr
+      ? `<div class="solution-qr solution-qr--header"><img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${qrPayload}" alt="Solution Download QR" /></div>`
+      : `<div class="solution-qr solution-qr--header solution-qr--placeholder"><div class="solution-qr__blank"></div></div>`;
+    const headerLogos = `${config.leftLogo ? `<img class="header-logo header-logo--left" src="${config.leftLogo}" alt="Left logo" />` : ''}${config.rightLogo ? `<img class="header-logo header-logo--right" src="${config.rightLogo}" alt="Right logo" />` : ''}`;
+    const paperSubject = config.paperSubject || exam.subject || 'N/A';
+    const timeValue = config.durationLabel || exam.duration || 'N/A';
+    const marksValue = config.marksLabel || exam.fullMarks || 'N/A';
+    const resolvedSetCode = String(setCode || setLabel || '').replace(/^set\s*/i, '').trim();
+    return `<div class="board-head board-head--${escapeAttr(config.headerTheme || 'classic')}">${headerLogos}<div class="board-head-grid"><div class="board-col board-col--left">${qrCard}<div class="board-col__meta"><p><strong>${labels.version}:</strong> ${escapeHtml(exam.version || 'Bangla')}</p><p><strong>${labels.time}:</strong> ${formatMathForDisplay(timeValue)}</p></div></div><div class="board-col board-col--center"><h1>${formatMathForDisplay(config.headerTitle || 'MegaPrep Examination')}</h1><p><strong>${labels.subject}:</strong> ${formatMathForDisplay(paperSubject)}</p><p><strong>${labels.class}:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</p><p><strong>${labels.fullMarks}:</strong> ${formatMathForDisplay(marksValue)}</p></div><div class="board-col board-col--right"><div class="board-col__spacer"></div><div class="board-code-box"><p><strong>${labels.subjectCode}:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</p><p><strong>${labels.setCode}:</strong> ${escapeHtml(resolvedSetCode || 'N/A')}</p></div></div></div><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div>`;
   }
 
   function renderLivePrintPreview(exam) {
@@ -1548,8 +1661,15 @@
       }
       return `<article class="print-question live-preview-card" draggable="true" data-question-drag="${index}"><div class="live-preview-card__head"><h3>${serial}. ${formatMathForDisplay(question.question || question.stimulus || '', { subject: displaySubject })}</h3><button type="button" class="toolbar-button" data-live-edit="${index}">Edit</button></div>${imageBlock}<ul class="option-list option-list--grid live-preview-options">${options}</ul></article>`;
     }).join('');
-    const headerLogos = `${activeSet.config.leftLogo ? `<img class="header-logo header-logo--left" src="${activeSet.config.leftLogo}" alt="Left logo" />` : ''}${activeSet.config.rightLogo ? `<img class="header-logo header-logo--right" src="${activeSet.config.rightLogo}" alt="Right logo" />` : ''}`;
-    panel.innerHTML = `<h4>Live Print Preview</h4><div class="field-row"><label>Set Filter<select id="livePreviewSetFilter">${sets.map((item) => `<option value="${item.setCode}" ${item.setCode === activeSet.setCode ? 'selected' : ''}>${escapeHtml(item.setLabel)}</option>`).join('')}</select></label></div><p class="muted-copy">Print er moto exact question paper preview. Drag kore question/option position change korle answer key o update hobe.</p><section class="paper set-paper live-preview-paper"><div class="board-head board-head--${escapeAttr(activeSet.config.headerTheme || 'classic')}">${headerLogos}<h1>${formatMathForDisplay(activeSet.config.headerTitle)}</h1><h2>${formatMathForDisplay(activeSet.config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(activeSet.setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(activeSet.config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(activeSet.config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(activeSet.config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(activeSet.config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(activeSet.config.paperSubject || exam.subject)} · ${escapeHtml(activeSet.config.paperDate || exam.examDate)} · ${escapeHtml(activeSet.config.paperType || exam.examType)}</p><p class="instructions">${formatMathForDisplay(activeSet.config.instructions)}</p></div><div class="question-grid">${paperQuestions || '<p>No assigned question found.</p>'}</div></section><div class="table-wrap"><table class="result-table"><thead><tr><th>MCQ No</th><th>Answer Key</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${item}</td></tr>`).join('')}</tbody></table></div>`;
+    const headerBlock = buildPaperHeader({
+      exam,
+      config: activeSet.config,
+      setLabel: activeSet.setLabel,
+      setCode: activeSet.setCode,
+      includeQr: true,
+      solutionUrl: getSolutionPublicUrl(exam.id),
+    });
+    panel.innerHTML = `<h4>Live Print Preview</h4><div class="field-row"><label>Set Filter<select id="livePreviewSetFilter">${sets.map((item) => `<option value="${item.setCode}" ${item.setCode === activeSet.setCode ? 'selected' : ''}>${escapeHtml(item.setLabel)}</option>`).join('')}</select></label></div><p class="muted-copy">Print er moto exact question paper preview. Drag kore question/option position change korle answer key o update hobe.</p><section class="paper set-paper live-preview-paper">${headerBlock}<div class="question-grid">${paperQuestions || '<p>No assigned question found.</p>'}</div></section><div class="table-wrap"><table class="result-table"><thead><tr><th>MCQ No</th><th>Answer Key</th></tr></thead><tbody>${answerKey.map((item, idx) => `<tr><td>${idx + 1}</td><td>${item}</td></tr>`).join('')}</tbody></table></div>`;
     panel.querySelector('#livePreviewSetFilter')?.addEventListener('change', (event) => {
       livePreviewSelectedSet = event.target.value || '';
       renderLivePrintPreview(exam);
@@ -2572,11 +2692,7 @@
       const { setQuestions, answerKey } = variant;
       const setLabel = variant.setLabel;
       const solutionUrl = getSolutionPublicUrl(exam.id);
-      const qrPayload = encodeURIComponent(solutionUrl);
-      const qrBlock = includeSolutionQr ? `<div class="solution-qr solution-qr--paper"><img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${qrPayload}" alt="Solution Download QR" /><span class="solution-qr__hint">Solution QR</span></div>` : '';
       let currentSection = '';
-      const subjectCount = new Set(setQuestions.map((question) => String(question.subject || exam.subject || '').trim()).filter(Boolean)).size;
-      const useSubjectHeading = subjectCount > 1;
       let mcqSerial = 0;
       let cqSerial = 0;
       const list = setQuestions.map((question, index) => {
@@ -2586,13 +2702,11 @@
         const showAnswers = forceAnswers || config.showAnswers;
         const showExplanation = forceExplanation || config.showExplanation;
         const imageBlock = question.image ? `<img class="print-question-image" src="${question.image}" alt="Question image ${index + 1}" />` : '';
-        const headingLabel = useSubjectHeading
-          ? String(question.subject || exam.subject || '').trim()
-          : String(question.section || '').trim();
-        const sectionHeading = headingLabel && headingLabel !== currentSection
+        const headingLabel = String(question.topic || question.section || '').trim();
+        const sectionHeading = config.showTopicHeading && headingLabel && headingLabel !== currentSection
           ? `<div class="part-heading">${escapeHtml(headingLabel)}</div>`
           : '';
-        currentSection = headingLabel || currentSection;
+        currentSection = config.showTopicHeading ? (headingLabel || currentSection) : currentSection;
         const questionBody = question.type === 'cq'
           ? (question.subQuestions || []).map((item) => `<div><strong>${escapeHtml(item.label || '')}.</strong> ${formatMathForDisplay(item.prompt || '', { subject: displaySubject })}${showAnswers ? `<div class="answer-block"><strong>Answer:</strong> ${formatExplanationForDisplay(item.answer || '', { subject: displaySubject })}</div>` : ''}</div>`).join('')
           : `<ul class="option-list option-list--grid">${(question.options || []).map((option, optionIndex) => `<li><span class="option-label">${String.fromCharCode(65 + optionIndex)}.</span> <span>${formatMathForDisplay(option, { subject: displaySubject })}</span>${(question.optionImages || [])[optionIndex] ? `<div><img class="print-option-image" src="${(question.optionImages || [])[optionIndex]}" alt="Option ${optionIndex + 1}" /></div>` : ''}</li>`).join('')}</ul>${showAnswers ? `<p class="answer-block"><strong>Answer:</strong> ${String.fromCharCode(65 + (question.correct || 0))}. ${formatMathForDisplay((question.options || [])[question.correct] || '', { subject: displaySubject })}</p>` : ''}`;
@@ -2600,8 +2714,15 @@
         return `${sectionHeading}<article class="print-question"><h3>${number}. ${formatMathForDisplay(title, { subject: displaySubject })}</h3>${imageBlock}${questionBody}${explanation}</article>`;
       }).join('');
 
-      const headerLogos = `${config.leftLogo ? `<img class="header-logo header-logo--left" src="${config.leftLogo}" alt="Left logo" />` : ''}${config.rightLogo ? `<img class="header-logo header-logo--right" src="${config.rightLogo}" alt="Right logo" />` : ''}`;
-      setMarkup.push(`<section class="paper set-paper">${qrBlock}<div class="board-head board-head--${escapeAttr(headerTheme)}">${headerLogos}<h1>${formatMathForDisplay(config.headerTitle)}</h1><h2>${formatMathForDisplay(config.paperTitle || exam.title)}</h2><div class="board-meta"><span><strong>Set:</strong> ${escapeHtml(setLabel)}</span><span><strong>Code:</strong> ${formatMathForDisplay(config.examCode || 'N/A')}</span><span><strong>Class:</strong> ${formatMathForDisplay(config.classLabel || 'N/A')}</span></div><div class="board-meta board-meta--top"><span><strong>Time:</strong> ${formatMathForDisplay(config.durationLabel || exam.duration || 'N/A')}</span><span><strong>Full Marks:</strong> ${formatMathForDisplay(config.marksLabel || exam.fullMarks || 'N/A')}</span></div><p class="paper-meta">${formatMathForDisplay(config.paperSubject || exam.subject)} · ${escapeHtml(config.paperDate || exam.examDate)} · ${escapeHtml(config.paperType || exam.examType)}</p><p class="instructions">${formatMathForDisplay(config.instructions)}</p></div><div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
+      const headerBlock = buildPaperHeader({
+        exam,
+        config: { ...config, headerTheme },
+        setLabel,
+        setCode: variant.setCode,
+        includeQr: includeSolutionQr,
+        solutionUrl,
+      });
+      setMarkup.push(`<section class="paper set-paper">${headerBlock}<div class="question-grid">${list || '<p>No questions assigned.</p>'}</div></section>`);
 
       if (config.includeAnswerSheet && !disableAnswerSheet) {
         const mcqAnswerKey = answerKey.filter((item) => item !== 'CQ');
@@ -2622,7 +2743,7 @@
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:10px 8px;margin-bottom:10px;position:relative}.header-logo{position:absolute;top:8px;width:56px;height:56px;object-fit:contain}.header-logo--left{left:8px}.header-logo--right{right:8px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:6px 0}.board-head--classic{background:#f8fbff}h1{font-size:24px;margin-bottom:3px}h2{font-size:18px;margin-bottom:6px}.board-meta{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:4px}.board-meta--top{font-size:13px;margin:6px 0}.paper-meta{text-align:center;font-size:12px;color:#444;margin:0 0 8px 0}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:6px 8px;border-radius:8px;text-align:center;margin:0 0 10px 0;font-size:12px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.part-heading{break-inside:avoid;page-break-inside:avoid;font-weight:800;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:4px 8px;margin:0 0 6px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.print-question-image{display:block;max-width:100%;max-height:170px;object-fit:contain;border:1px solid #d8dee9;border-radius:8px;background:#fff;margin:6px 0}.print-option-image{display:block;max-width:100%;max-height:62px;object-fit:contain;border:1px solid #d8dee9;border-radius:6px;background:#fff;margin-top:4px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;margin-top:8px;font-size:11px;color:#334155}.solution-qr--paper{position:absolute;left:10px;top:10px;z-index:1;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:3px 4px}.solution-qr__hint{font-size:9px}.solution-qr img{width:52px;height:52px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.omr-sheet-head{border:1px solid #e2e8f0;border-radius:10px;background:#fdf2f8;padding:8px 10px;margin-bottom:10px}.omr-grid{display:grid;gap:8px 10px;margin-top:10px}.omr-grid--4col{grid-template-columns:repeat(4,minmax(0,1fr))}.omr-column{border:1px solid #f9a8d4;border-radius:8px;padding:6px;background:#fff}.omr-column-head{text-align:center;font-size:11px;font-weight:700;border-bottom:1px solid #fbcfe8;padding-bottom:4px;margin-bottom:4px;color:#9d174d}.omr-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:1px 0}.omr-qno{min-width:24px;font-weight:700;font-size:11px}.omr-bubbles{display:flex;gap:4px}.omr-bubble{width:16px;height:16px;border:1.2px solid #db2777;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#be185d;background:#fff}.omr-bubble.is-correct{background:#9d174d;border-color:#7a1237;color:#fff;box-shadow:inset 0 0 0 2px #be185d,inset 0 0 0 5px rgba(255,255,255,.28)}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode h1{font-size:20px}.compact-mode h2{font-size:16px}.compact-mode .header-logo{width:42px;height:42px;top:6px}.compact-mode .question-grid{column-gap:10px}.compact-mode .part-heading{font-size:12px;padding:3px 7px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .print-question-image{max-height:120px;margin:4px 0}.compact-mode .print-option-image{max-height:46px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .board-meta{font-size:11px}.compact-mode .instructions{font-size:11px;padding:5px 7px}.compact-mode .omr-bubble{width:14px;height:14px;font-size:8px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\\\(','\\\\)']],displayMath:[['$$','$$'],['\\\\[','\\\\]']]},svg:{fontCache:'global'}};</script><script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:6px 8px 8px;margin-bottom:8px;position:relative}.header-logo{position:absolute;top:8px;width:56px;height:56px;object-fit:contain}.header-logo--left{left:8px}.header-logo--right{right:8px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:4px 0 6px}.board-head--classic{background:#f8fbff}.board-head-grid{display:grid;grid-template-columns:1fr 1.35fr 1fr;gap:10px;align-items:start}.board-col{font-size:12px;text-align:left}.board-col p{margin:2px 0}.board-col--center{text-align:center}.board-col--center h1{font-size:18px;margin-bottom:4px}.board-col__meta{display:flex;flex-direction:column;gap:2px}.board-col__spacer{height:56px}.board-code-box{border:1px solid #cbd5e1;border-radius:8px;background:#fff;padding:4px 8px;display:flex;flex-direction:column;gap:2px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:10px;color:#334155}.solution-qr--header{width:72px}.solution-qr img{width:56px;height:56px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.solution-qr__blank{width:56px;height:56px;border:1px dashed #cbd5e1;border-radius:6px;background:#fff}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:5px 7px;border-radius:8px;text-align:center;margin:6px 0 0 0;font-size:11px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.part-heading{break-inside:avoid;page-break-inside:avoid;font-weight:800;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:4px 8px;margin:0 0 6px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.print-question-image{display:block;max-width:100%;max-height:170px;object-fit:contain;border:1px solid #d8dee9;border-radius:8px;background:#fff;margin:6px 0}.print-option-image{display:block;max-width:100%;max-height:62px;object-fit:contain;border:1px solid #d8dee9;border-radius:6px;background:#fff;margin-top:4px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.math-tex{display:inline}.omr-sheet-head{border:1px solid #e2e8f0;border-radius:10px;background:#fdf2f8;padding:8px 10px;margin-bottom:10px}.omr-grid{display:grid;gap:8px 10px;margin-top:10px}.omr-grid--4col{grid-template-columns:repeat(4,minmax(0,1fr))}.omr-column{border:1px solid #f9a8d4;border-radius:8px;padding:6px;background:#fff}.omr-column-head{text-align:center;font-size:11px;font-weight:700;border-bottom:1px solid #fbcfe8;padding-bottom:4px;margin-bottom:4px;color:#9d174d}.omr-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:1px 0}.omr-qno{min-width:24px;font-weight:700;font-size:11px}.omr-bubbles{display:flex;gap:4px}.omr-bubble{width:16px;height:16px;border:1.2px solid #db2777;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#be185d;background:#fff}.omr-bubble.is-correct{background:#9d174d;border-color:#7a1237;color:#fff;box-shadow:inset 0 0 0 2px #be185d,inset 0 0 0 5px rgba(255,255,255,.28)}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode .board-head-grid{gap:8px}.compact-mode .board-col{font-size:11px}.compact-mode .board-col--center h1{font-size:16px}.compact-mode .header-logo{width:42px;height:42px;top:6px}.compact-mode .board-col__spacer{height:42px}.compact-mode .board-code-box{padding:3px 6px}.compact-mode .solution-qr img,.compact-mode .solution-qr__blank{width:44px;height:44px}.compact-mode .question-grid{column-gap:10px}.compact-mode .part-heading{font-size:12px;padding:3px 7px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .print-question-image{max-height:120px;margin:4px 0}.compact-mode .print-option-image{max-height:46px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .instructions{font-size:10px;padding:4px 6px}.compact-mode .omr-bubble{width:14px;height:14px;font-size:8px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
   }
 
   function getSolutionPublicUrl(examId) {
@@ -2790,6 +2911,7 @@
       .replace(/\\left|\\right/g, '')
       .replace(/\\([a-zA-Z]+)\b/g, (_, cmd) => commandMap[cmd] ?? cmd)
       .replace(/\\([&%$#_{}])/g, '$1')
+      .replace(/\\[()[\]]/g, '')
       .replace(/[{}]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -3468,10 +3590,11 @@
       .join('<br />');
   }
   function formatMathForDisplay(text, options = {}) {
+    const raw = String(text || '');
     const subject = String(options.subject || '').toLowerCase();
     const isPhysics = subject.includes('physics') || subject.includes('পদার্থ');
-    const normalized = escapeHtml(latexToPlainText(text))
-      .replace(/\|/g, '')
+    const normalized = escapeHtml(latexToPlainText(raw))
+      .replace(/\s*\|\s*$/g, '')
       .replace(/\*/g, isPhysics ? ' * ' : ' × ')
       .replace(/\s*=\s*/g, ' = ')
       .replace(/([0-9০-৯]+)\s*\^(?=\s*$)/g, '$1°')
