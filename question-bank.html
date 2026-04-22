@@ -8,9 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
-<script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},svg:{fontCache:'global'}};</script>
-<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js">
-</script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
 </head>
 <body data-page="question-bank">
 <div class="page-shell">
@@ -44,7 +44,7 @@
 <div class="panel-card">
 <div class="panel-card__header">
 <h3>Curriculum & Prompt Builder</h3>
-<p>Select SSC/HSC curriculum, then auto-fill prompt text or import structured JSON.</p>
+<p>Select SSC/HSC curriculum, then auto-fill KaTeX-ready prompt text or import structured JSON.</p>
 </div>
 <form id="curriculumPromptForm" class="app-form app-form--two-col">
 <label class="full-span">Target Exam (Optional)<select id="qbExamTarget">
@@ -100,7 +100,7 @@
 <button type="button" class="segmented-control__btn" data-mode="json">JSON Import</button>
 </div>
 <form id="mcqForm" class="app-form mode-panel app-form--single is-active">
-<label>Question Text<textarea id="mcqQuestion" rows="4" placeholder="Write question text with LaTeX">
+<label>Question Text<textarea id="mcqQuestion" rows="4" placeholder="Write question text with KaTeX LaTeX (e.g., \(...\))">
 </textarea>
 </label>
 <label>Explanation<textarea id="mcqExplanation" rows="3" placeholder="Write explanation">
@@ -166,7 +166,7 @@
 <div class="panel-card">
 <div class="panel-card__header">
 <h3>Live Preview</h3>
-<p>LaTeX preview plus saved questions.</p>
+<p>KaTeX preview plus saved questions.</p>
 </div>
 <div id="questionPreview" class="preview-surface">
 </div>
