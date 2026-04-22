@@ -2098,9 +2098,11 @@ Validation before final output:
       return;
     }
     renderLivePrintPreview(exam);
-    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-question-docs="${exam.id}">Question Paper Docs</button><button class="toolbar-button" data-sidebar-solution-docs="${exam.id}">Solution Paper Docs</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
-    holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', () => {
-      const item = findExam(exam.id);
+    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button type="button" class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button type="button" class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button type="button" class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button type="button" class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button type="button" class="toolbar-button" data-sidebar-question-docs="${exam.id}">Question Paper Docs</button><button type="button" class="toolbar-button" data-sidebar-solution-docs="${exam.id}">Solution Paper Docs</button><button type="button" class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button type="button" class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
+    holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      const examId = event.currentTarget?.dataset?.sidebarPublish || exam.id;
+      const item = findExam(examId);
       if (!item) return showToast('Exam not found.', 'error');
       item.published = !item.published;
       if (item.published) {
@@ -2119,6 +2121,7 @@ Validation before final output:
       }
       saveState();
       renderExamManager();
+      showToast(item.published ? 'Exam published.' : 'Exam unpublished.');
     });
     holder.querySelector('[data-sidebar-delete]')?.addEventListener('click', () => {
       state.exams = state.exams.filter((item) => item.id !== exam.id);
@@ -2133,8 +2136,10 @@ Validation before final output:
     holder.querySelector('[data-sidebar-question-docs]')?.addEventListener('click', () => downloadExamPaperDocs(exam.id));
     holder.querySelector('[data-sidebar-solution-docs]')?.addEventListener('click', () => downloadSolutionPaperDocs(exam.id));
     holder.querySelector('[data-sidebar-print-omr]')?.addEventListener('click', () => printOmrSheet(exam.id));
-    holder.querySelector('[data-sidebar-solution-publish]')?.addEventListener('click', () => {
-      const item = findExam(exam.id);
+    holder.querySelector('[data-sidebar-solution-publish]')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      const examId = event.currentTarget?.dataset?.sidebarSolutionPublish || exam.id;
+      const item = findExam(examId);
       if (!item) return showToast('Exam not found.', 'error');
       item.solutionPublished = !item.solutionPublished;
       if (item.solutionPublished) item.solutionPublishedAt = new Date().toISOString();
