@@ -1449,6 +1449,10 @@ body.theme-dark .summary-card {
   padding: 0.05em 0.18em 0;
 }
 
+.math-tex {
+  display: inline;
+}
+
 .app-form {
   display: grid;
   gap: 16px;
@@ -1952,6 +1956,7 @@ canvas {
 
 .live-preview-paper .board-head {
   position: relative;
+  padding: 8px;
 }
 
 .live-preview-paper .header-logo {
@@ -1968,6 +1973,63 @@ canvas {
 
 .live-preview-paper .header-logo--right {
   right: 8px;
+}
+
+.live-preview-paper .board-head-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.live-preview-paper .board-col {
+  text-align: left;
+  font-size: 12px;
+}
+
+.live-preview-paper .board-col p {
+  margin: 2px 0;
+}
+
+.live-preview-paper .board-col--center {
+  text-align: center;
+}
+
+.live-preview-paper .board-col--center h1 {
+  font-size: 18px;
+  margin: 0 0 4px 0;
+}
+
+.live-preview-paper .board-col__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.live-preview-paper .board-col__spacer {
+  height: 56px;
+}
+
+.live-preview-paper .board-code-box {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.live-preview-paper .solution-qr--header {
+  width: 72px;
+}
+
+.live-preview-paper .solution-qr__blank {
+  width: 56px;
+  height: 56px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
 }
 
 .solution-sheet-box .option-list li.is-marked {
