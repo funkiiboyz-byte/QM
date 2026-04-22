@@ -2139,7 +2139,6 @@ Validation before final output:
       }
       refreshPublishUi(item);
       saveState();
-      syncStateToCloud({ retries: 3 });
       showToast(item.published ? 'Exam published.' : 'Exam unpublished.');
     });
     holder.querySelector('[data-sidebar-delete]')?.addEventListener('click', () => {
@@ -2168,7 +2167,6 @@ Validation before final output:
       else delete item.solutionPublishedAt;
       refreshPublishUi(item);
       saveState();
-      syncStateToCloud({ retries: 3 });
       showToast(item.solutionPublished ? 'Solution link published.' : 'Solution link unpublished.');
     });
   }
