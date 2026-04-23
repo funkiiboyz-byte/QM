@@ -3797,6 +3797,10 @@ Validation before final output:
     return /\\[a-zA-Z]+|\\\(|\\\)|\\\[|\\\]|\$\$|\$[^$]+\$/.test(String(text || ''));
   }
 
+  function hasExplicitMathDelimiter(text = '') {
+    return /\\\(|\\\)|\\\[|\\\]|\$\$|\$[^$]+\$/.test(String(text || ''));
+  }
+
   function wrapMathJaxInline(text = '') {
     const cleaned = String(text || '')
       .trim()
@@ -3812,7 +3816,11 @@ Validation before final output:
   function formatMathForDisplay(text, options = {}) {
     const raw = String(text || '');
     if (hasLatexSyntax(raw)) {
-      return escapeHtml(raw).replace(/\n/g, '<br />');
+      const escaped = escapeHtml(raw).replace(/\n/g, '<br />');
+      if (!hasExplicitMathDelimiter(raw) && /\\[a-zA-Z]+/.test(raw)) {
+        return `<span class="math-tex">\\(${escapeHtml(raw.trim())}\\)</span>`;
+      }
+      return escaped;
     }
     const subject = String(options.subject || '').toLowerCase();
     const isPhysics = subject.includes('physics') || subject.includes('পদার্থ');
