@@ -604,16 +604,19 @@ Hard constraints:
 7) Difficulty target: "${payload.difficulty}"
 8) For multiline text use literal \\n in JSON (especially CQ answers/explanations).
 9) Math rule (KaTeX-first):
-   - Write every math expression in LaTeX delimiters: inline \\(...\\), display \\[...\\].
-   - Examples: \\(x^2 + y^2 = z^2\\), \\(\\frac{a}{b}\\), \\(\\sqrt{x}\\), \\(\\tan^{-1}x\\), \\[\\int_0^1 x^2\\,dx\\], \\(\\vec{F}=G\\frac{m_1m_2}{r^2}\\).
-   - Escape backslashes correctly inside JSON strings (example: \\\\(\\\\frac{a}{b}\\\\) in raw JSON text).
+   - Write every math expression in display LaTeX delimiters: \\[...\\] (or $$...$$ only when necessary).
+   - Examples: \\[x^2 + y^2 = z^2\\], \\[\\frac{a}{b}\\], \\[\\sqrt{x}\\], \\[\\tan^{-1}x\\], \\[\\int_0^1 x^2\\,dx\\], \\[\\vec{F}=G\\frac{m_1m_2}{r^2}\\].
+   - Escape backslashes correctly inside JSON strings (example: \\\\[\\\\frac{a}{b}\\\\] in raw JSON text).
    - Never output plain-text math shortcuts like sqrt(x), a/b, x^2 without LaTeX delimiters.
 10) Keep wording textbook-like (clean, concise, exam-ready), and keep math notation consistent across question/options/answers/explanations.
 11) Physics formatting rules (must follow):
-   - Use \\vec{} for vectors (example: \\vec{F}, \\vec{v}, \\vec{r}).
+   - Use \\vec{} or unit-vector hats for vectors (examples: \\vec{F}, \\hat{\\imath}, \\hat{\\jmath}, \\hat{k}).
    - Use \\text{} for units so units stay roman/upright (example: \\text{N m}^2 \\text{kg}^{-2}).
    - Keep constants in standard notation (examples: g, G, \\epsilon_0).
    - If a complex diagram is needed, provide a clear placeholder description like: [Diagram: ...] so a figure can be inserted later.
+   - Use \\frac{}{} for fractions and pair brackets with \\left( ... \\right) when fraction height requires scaling.
+   - For multi-step proofs use \\because, \\therefore, and \\implies symbols clearly.
+   - For complex fractions, prefer \\displaystyle for readability.
 
 If questionType is MCQ return exactly this shape:
 {
@@ -3818,7 +3821,7 @@ Validation before final output:
     if (hasLatexSyntax(raw)) {
       const escaped = escapeHtml(raw).replace(/\n/g, '<br />');
       if (!hasExplicitMathDelimiter(raw) && /\\[a-zA-Z]+/.test(raw)) {
-        return `<span class="math-tex">\\(${escapeHtml(raw.trim())}\\)</span>`;
+        return `<span class="math-tex">\\[${escapeHtml(raw.trim())}\\]</span>`;
       }
       return escaped;
     }
