@@ -3732,8 +3732,23 @@
     return /\\[a-zA-Z]+|\\\(|\\\)|\\\[|\\\]|\$\$|\$[^$]+\$/.test(String(text || ''));
   }
 
-  function hasExplicitMathDelimiter(text = '') {
+  function hasMathDelimiter(text = '') {
     return /\\\(|\\\)|\\\[|\\\]|\$\$|\$[^$]+\$/.test(String(text || ''));
+  }
+
+  function normalizeLatexForRender(text = '') {
+    let next = String(text || '');
+    // handle over-escaped command backslashes from API payloads
+    next = next.replace(/\\\\([a-zA-Z])/g, '\\$1');
+    // normalize malformed bracket-style delimiters like [\hat{i}\]
+    next = next
+      .replace(/\[(\\[\s\S]*?)\\\]/g, '\\\\[$1\\\\]')
+      .replace(/\[([A-Za-z0-9^_+\-*/=().,:| ]+?)\\\]/g, '\\\\[$1\\\\]');
+    // if LaTeX commands exist but no delimiters, wrap inline
+    if (!hasMathDelimiter(next) && /\\[a-zA-Z]+/.test(next)) {
+      next = `\\(${next}\\)`;
+    }
+    return next;
   }
 
   function wrapMathJaxInline(text = '') {
@@ -3750,15 +3765,9 @@
 
   function formatMathForDisplay(text, options = {}) {
     const raw = String(text || '');
-    const normalizedRaw = raw
-      .replace(/\[(\\[\s\S]*?)\\\]/g, '\\\\[$1\\\\]')
-      .replace(/\[([A-Za-z0-9^_+\-*/=().,:| ]+?)\\\]/g, '\\\\[$1\\\\]');
-    if (hasLatexSyntax(normalizedRaw)) {
-      const escaped = escapeHtml(normalizedRaw).replace(/\n/g, '<br />');
-      if (!hasExplicitMathDelimiter(normalizedRaw) && /\\[a-zA-Z]+/.test(normalizedRaw)) {
-        return `<span class="math-tex">\\[${escapeHtml(normalizedRaw.trim())}\\]</span>`;
-      }
-      return escaped;
+    const latexReady = normalizeLatexForRender(raw);
+    if (hasLatexSyntax(latexReady)) {
+      return escapeHtml(latexReady).replace(/\n/g, '<br />');
     }
     const subject = String(options.subject || '').toLowerCase();
     const isPhysics = subject.includes('physics') || subject.includes('পদার্থ');
