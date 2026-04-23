@@ -605,6 +605,7 @@ Hard constraints:
 8) For multiline text use literal \\n in JSON (especially CQ answers/explanations).
 9) Math rule (KaTeX-first):
    - Write every math expression in display LaTeX delimiters: \\[...\\] (or $$...$$ only when necessary).
+   - Never use malformed bracket delimiters like [\\...\\]; always use proper \\[...\\].
    - Examples: \\[x^2 + y^2 = z^2\\], \\[\\frac{a}{b}\\], \\[\\sqrt{x}\\], \\[\\tan^{-1}x\\], \\[\\int_0^1 x^2\\,dx\\], \\[\\vec{F}=G\\frac{m_1m_2}{r^2}\\].
    - Escape backslashes correctly inside JSON strings (example: \\\\[\\\\frac{a}{b}\\\\] in raw JSON text).
    - Never output plain-text math shortcuts like sqrt(x), a/b, x^2 without LaTeX delimiters.
@@ -3818,10 +3819,13 @@ Validation before final output:
 
   function formatMathForDisplay(text, options = {}) {
     const raw = String(text || '');
-    if (hasLatexSyntax(raw)) {
-      const escaped = escapeHtml(raw).replace(/\n/g, '<br />');
-      if (!hasExplicitMathDelimiter(raw) && /\\[a-zA-Z]+/.test(raw)) {
-        return `<span class="math-tex">\\[${escapeHtml(raw.trim())}\\]</span>`;
+    const normalizedRaw = raw
+      .replace(/\[(\\[\s\S]*?)\\\]/g, '\\\\[$1\\\\]')
+      .replace(/\[([A-Za-z0-9^_+\-*/=().,:| ]+?)\\\]/g, '\\\\[$1\\\\]');
+    if (hasLatexSyntax(normalizedRaw)) {
+      const escaped = escapeHtml(normalizedRaw).replace(/\n/g, '<br />');
+      if (!hasExplicitMathDelimiter(normalizedRaw) && /\\[a-zA-Z]+/.test(normalizedRaw)) {
+        return `<span class="math-tex">\\[${escapeHtml(normalizedRaw.trim())}\\]</span>`;
       }
       return escaped;
     }
