@@ -1648,7 +1648,9 @@
     const answerKey = [];
     renderedQuestions.forEach((entry) => {
       if (entry.question.type !== 'mcq') return;
-      const optionIndex = entry.optionsOrder[Number(entry.question.correct) || 0] ?? 0;
+      const correctSourceIndex = Number(entry.question.correct) || 0;
+      const displayIndex = entry.optionsOrder.findIndex((sourceIndex) => sourceIndex === correctSourceIndex);
+      const optionIndex = displayIndex >= 0 ? displayIndex : 0;
       answerKey.push(String.fromCharCode(65 + optionIndex));
     });
     let previewMcqNo = 0;
@@ -2038,27 +2040,50 @@
       return;
     }
     renderLivePrintPreview(exam);
-    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button class="toolbar-button" data-sidebar-publish="${exam.id}">${exam.published ? 'Unpublish' : 'Publish'}</button><button class="toolbar-button" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Unpublish' : 'Solution Publish'}</button><button class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button class="toolbar-button" data-sidebar-question-docs="${exam.id}">Question Paper Docs</button><button class="toolbar-button" data-sidebar-solution-docs="${exam.id}">Solution Paper Docs</button><button class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
-    holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', () => {
-      const item = findExam(exam.id);
+    holder.innerHTML = `<a class="toolbar-button" href="create-exam.html?examId=${exam.id}">Edit</a><button type="button" class="toolbar-button ${exam.published ? 'toolbar-button--success' : ''}" data-sidebar-publish="${exam.id}">${exam.published ? 'Published' : 'Publish'}</button><button type="button" class="toolbar-button ${exam.solutionPublished ? 'toolbar-button--success' : ''}" data-sidebar-solution-publish="${exam.id}">${exam.solutionPublished ? 'Solution Published' : 'Solution Publish'}</button><button type="button" class="toolbar-button" data-sidebar-download="${exam.id}">Download</button><button type="button" class="toolbar-button" data-sidebar-print="${exam.id}">Print</button><button type="button" class="toolbar-button" data-sidebar-solution-download="${exam.id}">Solution Download</button><button type="button" class="toolbar-button" data-sidebar-question-docs="${exam.id}">Question Paper Docs</button><button type="button" class="toolbar-button" data-sidebar-solution-docs="${exam.id}">Solution Paper Docs</button><button type="button" class="toolbar-button" data-sidebar-print-omr="${exam.id}">Print OMR</button><a class="toolbar-button" href="result-analyse.html?examId=${exam.id}">Result Analyse</a><button type="button" class="toolbar-button toolbar-button--danger" data-sidebar-delete="${exam.id}">Delete</button>`;
+
+    const refreshPublishUi = (item) => {
+      const publishBtn = holder.querySelector('[data-sidebar-publish]');
+      if (publishBtn) {
+        publishBtn.textContent = item.published ? 'Published' : 'Publish';
+        publishBtn.classList.toggle('toolbar-button--success', !!item.published);
+      }
+      const solutionPublishBtn = holder.querySelector('[data-sidebar-solution-publish]');
+      if (solutionPublishBtn) {
+        solutionPublishBtn.textContent = item.solutionPublished ? 'Solution Published' : 'Solution Publish';
+        solutionPublishBtn.classList.toggle('toolbar-button--success', !!item.solutionPublished);
+      }
+      const statusPill = document.querySelector('#examManagerList .status-pill');
+      if (statusPill) {
+        statusPill.textContent = item.published ? 'Published' : 'Draft';
+        statusPill.classList.toggle('is-live', !!item.published);
+      }
+    };
+    holder.querySelector('[data-sidebar-publish]')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      const examId = event.currentTarget?.dataset?.sidebarPublish || exam.id;
+      const item = findExam(examId);
       if (!item) return showToast('Exam not found.', 'error');
       item.published = !item.published;
       if (item.published) {
         item.publishedAt = new Date().toISOString();
-        item.publishedSnapshot = {
-          config: structuredClone(state.settings.printConfig),
-          questions: (item.questionIds || []).map((id) => state.questions.find((question) => question.id === id)).filter(Boolean).map((question) => ({
-            ...question,
-            options: [...(question.options || [])],
-            subQuestions: (question.subQuestions || []).map((sub) => ({ ...sub })),
-          })),
-        };
+        item.publishedSnapshot = { config: structuredClone(state.settings.printConfig), questions: [] };
       } else {
         delete item.publishedAt;
         delete item.publishedSnapshot;
       }
+      refreshPublishUi(item);
       saveState();
-      renderExamManager();
+      if (item.published) {
+        const publishedExamId = item.id;
+        setTimeout(() => {
+          const liveExam = findExam(publishedExamId);
+          if (!liveExam || !liveExam.published) return;
+          liveExam.publishedSnapshot = buildPublishedSnapshot(liveExam);
+          saveState();
+        }, 0);
+      }
+      showToast(item.published ? 'Exam published.' : 'Exam unpublished.');
     });
     holder.querySelector('[data-sidebar-delete]')?.addEventListener('click', () => {
       state.exams = state.exams.filter((item) => item.id !== exam.id);
@@ -2070,17 +2095,22 @@
     });
     holder.querySelector('[data-sidebar-download]')?.addEventListener('click', () => downloadExamPaper(exam.id));
     holder.querySelector('[data-sidebar-print]')?.addEventListener('click', () => printExamPaper(exam.id));
+    holder.querySelector('[data-sidebar-solution-download]')?.addEventListener('click', () => {
+      window.open(getSolutionPublicUrl(exam.id), '_blank', 'noopener,noreferrer');
+    });
     holder.querySelector('[data-sidebar-question-docs]')?.addEventListener('click', () => downloadExamPaperDocs(exam.id));
     holder.querySelector('[data-sidebar-solution-docs]')?.addEventListener('click', () => downloadSolutionPaperDocs(exam.id));
     holder.querySelector('[data-sidebar-print-omr]')?.addEventListener('click', () => printOmrSheet(exam.id));
-    holder.querySelector('[data-sidebar-solution-publish]')?.addEventListener('click', () => {
-      const item = findExam(exam.id);
+    holder.querySelector('[data-sidebar-solution-publish]')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      const examId = event.currentTarget?.dataset?.sidebarSolutionPublish || exam.id;
+      const item = findExam(examId);
       if (!item) return showToast('Exam not found.', 'error');
       item.solutionPublished = !item.solutionPublished;
       if (item.solutionPublished) item.solutionPublishedAt = new Date().toISOString();
       else delete item.solutionPublishedAt;
+      refreshPublishUi(item);
       saveState();
-      renderExamManager();
       showToast(item.solutionPublished ? 'Solution link published.' : 'Solution link unpublished.');
     });
   }
@@ -2691,6 +2721,8 @@
     const answerSheets = [];
     const headerTheme = String(config.headerTheme || 'classic');
     const compactClass = config.compactMode ? 'compact-mode' : '';
+    const isPhysicsPaper = String(exam.subject || '').toLowerCase().includes('physics') || String(exam.subject || '').includes('পদার্থ');
+    const bodyClass = `${compactClass}${isPhysicsPaper ? `${compactClass ? ' ' : ''}physics-book` : ''}`;
 
     for (const variant of variants) {
       const { setQuestions, answerKey } = variant;
@@ -2747,7 +2779,7 @@
       }
     }
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\\\(','\\\\)']],displayMath:[['$$','$$'],['\\\\[','\\\\]']]},svg:{fontCache:'global'}};</script><script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:6px 8px 8px;margin-bottom:8px;position:relative}.header-logo{position:absolute;top:8px;width:56px;height:56px;object-fit:contain}.header-logo--left{left:8px}.header-logo--right{right:8px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:4px 0 6px}.board-head--classic{background:#f8fbff}.board-head-grid{display:grid;grid-template-columns:1fr 1.35fr 1fr;gap:10px;align-items:start}.board-col{font-size:12px;text-align:left}.board-col p{margin:2px 0}.board-col--center{text-align:center}.board-col--center h1{font-size:18px;margin-bottom:4px}.board-col__meta{display:flex;flex-direction:column;gap:2px}.board-col__spacer{height:56px}.board-code-box{border:1px solid #cbd5e1;border-radius:8px;background:#fff;padding:4px 8px;display:flex;flex-direction:column;gap:2px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:10px;color:#334155}.solution-qr--header{width:72px}.solution-qr img{width:56px;height:56px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.solution-qr__blank{width:56px;height:56px;border:1px dashed #cbd5e1;border-radius:6px;background:#fff}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:5px 7px;border-radius:8px;text-align:center;margin:6px 0 0 0;font-size:11px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.part-heading{break-inside:avoid;page-break-inside:avoid;font-weight:800;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:4px 8px;margin:0 0 6px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.print-question-image{display:block;max-width:100%;max-height:170px;object-fit:contain;border:1px solid #d8dee9;border-radius:8px;background:#fff;margin:6px 0}.print-option-image{display:block;max-width:100%;max-height:62px;object-fit:contain;border:1px solid #d8dee9;border-radius:6px;background:#fff;margin-top:4px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.math-tex{display:inline}.omr-sheet-head{border:1px solid #e2e8f0;border-radius:10px;background:#fdf2f8;padding:8px 10px;margin-bottom:10px}.omr-grid{display:grid;gap:8px 10px;margin-top:10px}.omr-grid--4col{grid-template-columns:repeat(4,minmax(0,1fr))}.omr-column{border:1px solid #f9a8d4;border-radius:8px;padding:6px;background:#fff}.omr-column-head{text-align:center;font-size:11px;font-weight:700;border-bottom:1px solid #fbcfe8;padding-bottom:4px;margin-bottom:4px;color:#9d174d}.omr-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:1px 0}.omr-qno{min-width:24px;font-weight:700;font-size:11px}.omr-bubbles{display:flex;gap:4px}.omr-bubble{width:16px;height:16px;border:1.2px solid #db2777;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#be185d;background:#fff}.omr-bubble.is-correct{background:#9d174d;border-color:#7a1237;color:#fff;box-shadow:inset 0 0 0 2px #be185d,inset 0 0 0 5px rgba(255,255,255,.28)}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.compact-mode .paper{padding:10px 12px}.compact-mode .board-head-grid{gap:8px}.compact-mode .board-col{font-size:11px}.compact-mode .board-col--center h1{font-size:16px}.compact-mode .header-logo{width:42px;height:42px;top:6px}.compact-mode .board-col__spacer{height:42px}.compact-mode .board-code-box{padding:3px 6px}.compact-mode .solution-qr img,.compact-mode .solution-qr__blank{width:44px;height:44px}.compact-mode .question-grid{column-gap:10px}.compact-mode .part-heading{font-size:12px;padding:3px 7px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .print-question-image{max-height:120px;margin:4px 0}.compact-mode .print-option-image{max-height:46px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .instructions{font-size:10px;padding:4px 6px}.compact-mode .omr-bubble{width:14px;height:14px;font-size:8px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${compactClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${escapeHtml(exam.title)}</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" /><script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script><script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script><script>function renderKaTeXForPrint(){if(!window.renderMathInElement)return;window.renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false},{left:'$',right:'$',display:false}],throwOnError:false,strict:'ignore'});}window.addEventListener('load',()=>setTimeout(renderKaTeXForPrint,60));</script><style>@page{margin:10mm}body{font-family:'Kalpurush','Noto Sans Bengali',Arial,sans-serif;background:#fff;padding:12px;color:#111}.paper{max-width:980px;margin:0 auto 14px auto;padding:12px 14px;border:1px solid #d6dbe3;border-radius:10px;break-inside:avoid-page;position:relative}.set-paper{page-break-before:always}.set-paper:first-of-type{page-break-before:auto}h1,h2,h3{margin:0}.board-head{text-align:center;border:1px solid #d6dbe3;border-radius:10px;padding:6px 8px 8px;margin-bottom:8px;position:relative}.header-logo{position:absolute;top:8px;width:56px;height:56px;object-fit:contain}.header-logo--left{left:8px}.header-logo--right{right:8px}.board-head--modern{background:linear-gradient(140deg,rgba(148,163,184,.12),transparent 65%)}.board-head--minimal{border-width:0 0 2px 0;border-radius:0;padding:4px 0 6px}.board-head--classic{background:#f8fbff}.board-head-grid{display:grid;grid-template-columns:1fr 1.35fr 1fr;gap:10px;align-items:start}.board-col{font-size:12px;text-align:left}.board-col p{margin:2px 0}.board-col--center{text-align:center}.board-col--center h1{font-size:18px;margin-bottom:4px}.board-col__meta{display:flex;flex-direction:column;gap:2px}.board-col__spacer{height:56px}.board-code-box{border:1px solid #cbd5e1;border-radius:8px;background:#fff;padding:4px 8px;display:flex;flex-direction:column;gap:2px}.solution-qr{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:10px;color:#334155}.solution-qr--header{width:72px}.solution-qr img{width:56px;height:56px;border:1px solid #cbd5e1;padding:2px;background:#fff;border-radius:6px}.solution-qr__blank{width:56px;height:56px;border:1px dashed #cbd5e1;border-radius:6px;background:#fff}.instructions{border:1px solid #d6d6d6;background:#f8fafc;padding:5px 7px;border-radius:8px;text-align:center;margin:6px 0 0 0;font-size:11px}.question-grid{column-count:${Math.max(1, Number(config.columns || 1))};column-gap:14px}.part-heading{break-inside:avoid;page-break-inside:avoid;font-weight:800;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:4px 8px;margin:0 0 6px}.print-question{break-inside:avoid;page-break-inside:avoid;padding:0 0 6px;margin:0 0 8px;display:block}.print-question h3{margin-right:2px}.print-question-image{display:block;max-width:100%;max-height:170px;object-fit:contain;border:1px solid #d8dee9;border-radius:8px;background:#fff;margin:6px 0}.print-option-image{display:block;max-width:100%;max-height:62px;object-fit:contain;border:1px solid #d8dee9;border-radius:6px;background:#fff;margin-top:4px}.option-list{list-style:none;padding-left:12px;margin:4px 0}.option-list li{display:flex;gap:6px;margin:2px 0;font-size:13px}.option-list--grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.option-list--grid li{margin:0}.option-label{min-width:16px;font-weight:700}.answer-block,.explanation-block{margin-top:4px;font-size:12px}.math-tex{display:inline}.omr-sheet-head{border:1px solid #e2e8f0;border-radius:10px;background:#fdf2f8;padding:8px 10px;margin-bottom:10px}.omr-grid{display:grid;gap:8px 10px;margin-top:10px}.omr-grid--4col{grid-template-columns:repeat(4,minmax(0,1fr))}.omr-column{border:1px solid #f9a8d4;border-radius:8px;padding:6px;background:#fff}.omr-column-head{text-align:center;font-size:11px;font-weight:700;border-bottom:1px solid #fbcfe8;padding-bottom:4px;margin-bottom:4px;color:#9d174d}.omr-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:1px 0}.omr-qno{min-width:24px;font-weight:700;font-size:11px}.omr-bubbles{display:flex;gap:4px}.omr-bubble{width:16px;height:16px;border:1.2px solid #db2777;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#be185d;background:#fff}.omr-bubble.is-correct{background:#9d174d;border-color:#7a1237;color:#fff;box-shadow:inset 0 0 0 2px #be185d,inset 0 0 0 5px rgba(255,255,255,.28)}.math-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;font-size:.92em;margin:0 .08em}.math-frac__num{border-bottom:1px solid currentColor;padding:0 .18em .05em}.math-frac__den{padding:.05em .18em 0}.physics-book{font-family:'Times New Roman','STIX Two Text','Noto Serif Bengali','Kalpurush',serif}.physics-book .print-question,.physics-book .print-question h3,.physics-book .print-question p,.physics-book .print-question div,.physics-book .option-list li span,.physics-book .instructions{text-align:justify}.physics-book .katex-display{margin:.55em auto;text-align:center}.physics-book .instructions,.physics-book .explanation-block,.physics-book .answer-block{background:#f8fafc;border:1px solid #dbe6f3;border-radius:8px;padding:4px 6px}.physics-book .formula-card,.physics-book .note-card{background:#f8fafc;border:1px solid #dbe6f3;border-radius:8px;padding:6px 8px;margin:6px 0}.compact-mode .paper{padding:10px 12px}.compact-mode .board-head-grid{gap:8px}.compact-mode .board-col{font-size:11px}.compact-mode .board-col--center h1{font-size:16px}.compact-mode .header-logo{width:42px;height:42px;top:6px}.compact-mode .board-col__spacer{height:42px}.compact-mode .board-code-box{padding:3px 6px}.compact-mode .solution-qr img,.compact-mode .solution-qr__blank{width:44px;height:44px}.compact-mode .question-grid{column-gap:10px}.compact-mode .part-heading{font-size:12px;padding:3px 7px}.compact-mode .print-question{margin:0 0 4px;padding:0 0 4px}.compact-mode h3{font-size:13px;margin-bottom:3px}.compact-mode .print-question-image{max-height:120px;margin:4px 0}.compact-mode .print-option-image{max-height:46px}.compact-mode .option-list{padding-left:10px}.compact-mode .option-list li{margin:1px 0;font-size:12px}.compact-mode .option-list--grid{gap:1px 10px}.compact-mode .option-list--grid li{margin:0}.compact-mode .instructions{font-size:10px;padding:4px 6px}.compact-mode .omr-bubble{width:14px;height:14px;font-size:8px}@media print{body{padding:0}.set-paper,.answer-sheet{page-break-after:always}.set-paper:last-of-type,.answer-sheet:last-of-type{page-break-after:auto}}</style></head><body class="${bodyClass}">${setMarkup.join('')}${answerSheets.join('')}</body></html>`;
   }
 
   function getSolutionPublicUrl(examId) {
@@ -2764,6 +2796,20 @@
       forceExplanation: true,
       disableAnswerSheet: true,
     });
+  }
+
+  function buildPublishedSnapshot(examItem) {
+    return {
+      config: structuredClone(state.settings.printConfig),
+      questions: (examItem.questionIds || [])
+        .map((id) => state.questions.find((question) => question.id === id))
+        .filter(Boolean)
+        .map((question) => ({
+          ...question,
+          options: [...(question.options || [])],
+          subQuestions: (question.subQuestions || []).map((sub) => ({ ...sub })),
+        })),
+    };
   }
 
   function initSolutionDownloadPage() {
@@ -2789,8 +2835,7 @@
       if (!win) return showToast('Popup blocked by browser.', 'error');
       win.document.write(buildSolutionPaperHtml(examId));
       win.document.close();
-      win.focus();
-      win.print();
+      waitAndPrintMathWindow(win);
     });
   }
 
@@ -2945,11 +2990,31 @@
     URL.revokeObjectURL(url);
   }
 
+  function buildStaticMathHtmlDocument(htmlContent) {
+    if (!htmlContent || typeof DOMParser === 'undefined') return htmlContent;
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(String(htmlContent), 'text/html');
+      if (typeof window.renderMathInElement === 'function' && doc.body) {
+        window.renderMathInElement(doc.body, {
+          delimiters: katexDelimiters,
+          throwOnError: false,
+          strict: 'ignore',
+        });
+      }
+      doc.querySelectorAll('script').forEach((node) => node.remove());
+      return `<!DOCTYPE html>${doc.documentElement.outerHTML}`;
+    } catch {
+      return htmlContent;
+    }
+  }
+
   function downloadExamPaperDocs(examId) {
     const exam = findExam(examId);
     if (!exam) return showToast('Exam not found.', 'error');
     const filename = `${exam.title.replace(/\s+/g, '-').toLowerCase() || 'question-paper'}.doc`;
-    downloadAsDocFile(filename, buildExamPaperHtml(examId, { includeSolutionQr: false }));
+    const html = buildStaticMathHtmlDocument(buildExamPaperHtml(examId, { includeSolutionQr: false }));
+    downloadAsDocFile(filename, html);
     showToast('Question paper docs exported.');
   }
 
@@ -2957,8 +3022,56 @@
     const exam = findExam(examId);
     if (!exam) return showToast('Exam not found.', 'error');
     const filename = `${exam.title.replace(/\s+/g, '-').toLowerCase() || 'solution-paper'}-solution.doc`;
-    downloadAsDocFile(filename, buildSolutionPaperHtml(examId));
+    const html = buildStaticMathHtmlDocument(buildSolutionPaperHtml(examId));
+    downloadAsDocFile(filename, html);
     showToast('Solution paper docs exported.');
+  }
+
+  function waitAndPrintMathWindow(win, options = {}) {
+    const timeoutMs = Number(options.timeoutMs || 5000);
+    const renderDelayMs = Number(options.renderDelayMs || 180);
+    const startedAt = Date.now();
+
+    const finalizePrint = () => {
+      if (!win || win.closed) return;
+      win.focus();
+      win.print();
+    };
+
+    const tryRender = () => {
+      if (!win || win.closed) return;
+      const doc = win.document;
+      if (!doc) return setTimeout(tryRender, 40);
+
+      if (doc.readyState !== 'complete') {
+        if (Date.now() - startedAt > timeoutMs) return finalizePrint();
+        return setTimeout(tryRender, 60);
+      }
+
+      if (typeof win.renderMathInElement === 'function') {
+        try {
+          win.renderMathInElement(doc.body, {
+            delimiters: katexDelimiters,
+            throwOnError: false,
+            strict: 'ignore',
+          });
+        } catch (_) {
+          // fallback to printing even if render fails
+        }
+        return setTimeout(finalizePrint, renderDelayMs);
+      }
+
+      if (win.MathJax?.typesetPromise) {
+        return win.MathJax.typesetPromise()
+          .catch(() => null)
+          .finally(() => setTimeout(finalizePrint, renderDelayMs));
+      }
+
+      if (Date.now() - startedAt > timeoutMs) return finalizePrint();
+      return setTimeout(tryRender, 80);
+    };
+
+    setTimeout(tryRender, 40);
   }
 
   function printExamPaper(examId) {
@@ -2967,8 +3080,7 @@
     if (!win) return showToast('Popup blocked by browser.', 'error');
     win.document.write(buildExamPaperHtml(examId));
     win.document.close();
-    win.focus();
-    win.print();
+    waitAndPrintMathWindow(win);
   }
 
   function buildOmrSheetHtml(examId) {
@@ -3582,7 +3694,29 @@
   function parseCSVRows(text) { const lines = text.trim().split(/\r?\n/).filter(Boolean); if (!lines.length) return []; const header = lines[0].split(',').map((item) => item.trim()); return lines.slice(1).map((line) => { const values = line.split(',').map((item) => item.trim()); return Object.fromEntries(header.map((key, index) => [key, values[index] || ''])); }); }
   function upsert(collection, item) { const index = collection.findIndex((entry) => entry.id === item.id); if (index === -1) collection.unshift(item); else collection[index] = { ...collection[index], ...item }; }
   function readFileAsDataUrl(file) { if (!file) return Promise.resolve(''); return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); }
-  function queueTypeset() { if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise(); }
+  const katexDelimiters = [
+    { left: '$$', right: '$$', display: true },
+    { left: '\\[', right: '\\]', display: true },
+    { left: '\\(', right: '\\)', display: false },
+    { left: '$', right: '$', display: false },
+  ];
+
+  function renderKatexInElement(target) {
+    if (!target || !window.renderMathInElement) return;
+    window.renderMathInElement(target, {
+      delimiters: katexDelimiters,
+      throwOnError: false,
+      strict: 'ignore',
+    });
+  }
+
+  function queueTypeset() {
+    if (window.renderMathInElement) {
+      renderKatexInElement(document.body);
+      return;
+    }
+    if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise();
+  }
   function formatExplanationForDisplay(text, options = {}) {
     const normalized = String(text || '')
       .replace(/\\n/g, '\n')
