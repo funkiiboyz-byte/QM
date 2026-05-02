@@ -148,3 +148,29 @@ SELECT COUNT(*) AS total_submissions FROM student_submissions;
 ```
 
 যদি এগুলো কাজ করে, তাহলে connection + schema + persistence setup ঠিক আছে।
+
+
+## 8) One-command setup from this repo
+
+এই repo-তে automation দেওয়া আছে:
+
+- `sql/init_qm_app.sql` → schema SQL
+- `scripts/run_skysql_setup.sh` → one-command setup runner
+
+Run:
+
+```bash
+export DB_PASSWORD='.M9xtp{wYgCsAEbjZRl16MKio'
+./scripts/run_skysql_setup.sh
+```
+
+## 9) If `mariadb` command is missing
+
+Ubuntu/Debian:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y mariadb-client
+```
+
+তারপর আবার script run করো।
