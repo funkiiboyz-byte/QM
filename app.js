@@ -591,7 +591,7 @@
     const languageInstruction = payload.version === 'English'
       ? 'All question text, options, and answers MUST be in English only.'
       : 'সব question text, option, answer এবং explanation অবশ্যই শুদ্ধ বাংলায় হবে।';
-    document.getElementById('jsonPromptText').value = `Generate strictly valid JSON for direct import into this Question Bank (copy-পেস্ট ready).\nReturn JSON only. No markdown, no comments, no code fences.\nHard constraints:\n1) Use exactly one root key: {"questions":[ ... ]}\n2) Every question object must include: type, level, group, subject, topic, version\n3) version must be exactly "${payload.version}"\n4) ${languageInstruction}\n5) Do not leave empty strings.\n6) Keep curriculum aligned with:\n   level="${payload.level}", group="${payload.group}", subject="${payload.subject}", topic="${payload.topic}"\n7) Difficulty target: "${payload.difficulty}"\n8) For multiline text use literal \\\\n in JSON (especially CQ answers/explanations).\n9) Math rule (KaTeX-first):\n   - Write every math expression in LaTeX delimiters: inline \\\\(...\\\\), display \\\\[...\\\\].\n   - Examples: \\\\(x^2 + y^2 = z^2\\\\), \\\\(\\\\frac{a}{b}\\\\), \\\\(\\\\sqrt{x}\\\\), \\\\(\\\\tan^{-1}x\\\\), \\\\[\\\\int_0^1 x^2\\\\,dx\\\\].\n   - Escape backslashes correctly inside JSON strings (example: \\\\\\\\(\\\\\\\\frac{a}{b}\\\\\\\\) in raw JSON text).\n   - Never output malformed delimiters like [\\\\...\\\\]; always use proper \\\\(...\\\\) or \\\\[...\\\\].\n   - Never output plain-text math shortcuts like sqrt(x), a/b, x^2 without LaTeX delimiters.\n10) Keep wording textbook-like (clean, concise, exam-ready), and keep math notation consistent across question/options/answers/explanations.\n11) Physics Standard Output Instructions:\n   - সকল ভেক্টর রাশিকে \\\\vec{} অথবা \\\\hat{} চিহ্ন দিয়ে প্রকাশ করো (যেমন: \\\\hat{\\\\imath}, \\\\hat{\\\\jmath}, \\\\hat{k}).\n   - একক (Units) লেখার সময় \\\\text{} ব্যবহার করো যেন সেগুলো ইটালিক না হয়ে সোজা থাকে (যেমন: \\\\[10 \\\\text{ ms}^{-1}\\\\]).\n   - গাণিতিক প্রমাণের ধাপগুলো \\\\therefore, \\\\because এবং \\\\implies চিহ্ন দিয়ে আলাদা করো।\n   - জটিল ভগ্নাংশের ক্ষেত্রে \\\\displaystyle ব্যবহার করো যেন লব ও হর স্পষ্ট বোঝা যায়।\n   - Use \\\\frac{}{} for fractions and always use \\\\left( and \\\\right) to ensure brackets scale correctly with the height of the fractions.\n\nIf questionType is MCQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "question": "single clear stem (KaTeX LaTeX allowed)",\n      "options": ["opt A", "opt B", "opt C", "opt D"],\n      "answer": "A",\n      "explanation": "4-6 short lines with \\\\n separators (KaTeX LaTeX allowed)"\n    }\n  ]\n}\n\nIf questionType is CQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "stimulus": "clear passage/context (KaTeX LaTeX allowed)",\n      "subQuestions": [\n        { "label": "A", "prompt": "part A prompt", "answer": "accurate answer A\\\\nsecond line if needed" },\n        { "label": "B", "prompt": "part B prompt", "answer": "accurate answer B\\\\nsecond line if needed" },\n        { "label": "C", "prompt": "part C prompt", "answer": "accurate answer C\\\\nsecond line if needed" }\n      ]\n    }\n  ]\n}\n\nValidation before final output:\n- JSON parses without error\n- MCQ has exactly 4 options\n- answer must be one of A/B/C/D\n- CQ must include at least 2 subQuestions with non-empty prompt+answer\n- Every mathematical expression is wrapped with KaTeX delimiters`;
+    document.getElementById('jsonPromptText').value = `Generate strictly valid JSON for direct import into this Question Bank (copy-পেস্ট ready).\nReturn JSON only. No markdown, no comments, no code fences.\nHard constraints:\n1) Use exactly one root key: {"questions":[ ... ]}\n2) Every question object must include: type, level, group, subject, topic, version\n3) version must be exactly "${payload.version}"\n4) ${languageInstruction}\n5) Do not leave empty strings.\n6) Keep curriculum aligned with:\n   level="${payload.level}", group="${payload.group}", subject="${payload.subject}", topic="${payload.topic}"\n7) Difficulty target: "${payload.difficulty}"\n8) For multiline text use literal \\\\n in JSON (especially CQ answers/explanations).\n9) Math rule (KaTeX-first):\n   - Write inline math using single dollar delimiters: $...$.\n   - Use $$...$$ only when a true display block is needed.\n   - Examples: $x^2 + y^2 = z^2$, $\\\\frac{a}{b}$, $\\\\sqrt{x}$, $\\\\tan^{-1}x$, $\\\\int_0^1 x^2\\\\,dx$.\n   - Escape backslashes correctly inside JSON strings (example: $\\\\frac{a}{b}$ in raw JSON text).\n   - Never output malformed delimiters like [\\\\...\\\\]; use only $...$ or $$...$$.\n   - Never output plain-text math shortcuts like sqrt(x), a/b, x^2 without LaTeX delimiters.\n10) Keep wording textbook-like (clean, concise, exam-ready), and keep math notation consistent across question/options/answers/explanations.\n11) Physics Standard Output Instructions:\n   - সকল ভেক্টর রাশিকে \\\\vec{} অথবা \\\\hat{} চিহ্ন দিয়ে প্রকাশ করো (যেমন: \\\\hat{\\\\imath}, \\\\hat{\\\\jmath}, \\\\hat{k}).\n   - একক (Units) লেখার সময় \\\\text{} ব্যবহার করো যেন সেগুলো ইটালিক না হয়ে সোজা থাকে (যেমন: $10 \\\\text{ ms}^{-1}$).\n   - গাণিতিক প্রমাণের ধাপগুলো \\\\therefore, \\\\because এবং \\\\implies চিহ্ন দিয়ে আলাদা করো।\n   - জটিল ভগ্নাংশের ক্ষেত্রে \\\\displaystyle ব্যবহার করো যেন লব ও হর স্পষ্ট বোঝা যায়।\n   - Use \\\\frac{}{} for fractions and always use \\\\left( and \\\\right) to ensure brackets scale correctly with the height of the fractions.\n\nIf questionType is MCQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "mcq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "question": "single clear stem (KaTeX LaTeX allowed)",\n      "options": ["opt A", "opt B", "opt C", "opt D"],\n      "answer": "A",\n      "explanation": "4-6 short lines with \\\\n separators (KaTeX LaTeX allowed)"\n    }\n  ]\n}\n\nIf questionType is CQ return exactly this shape:\n{\n  "questions": [\n    {\n      "type": "cq",\n      "level": "${payload.level}",\n      "group": "${payload.group}",\n      "subject": "${payload.subject}",\n      "topic": "${payload.topic}",\n      "version": "${payload.version}",\n      "section": "${payload.topic}",\n      "stimulus": "clear passage/context (KaTeX LaTeX allowed)",\n      "subQuestions": [\n        { "label": "A", "prompt": "part A prompt", "answer": "accurate answer A\\\\nsecond line if needed" },\n        { "label": "B", "prompt": "part B prompt", "answer": "accurate answer B\\\\nsecond line if needed" },\n        { "label": "C", "prompt": "part C prompt", "answer": "accurate answer C\\\\nsecond line if needed" }\n      ]\n    }\n  ]\n}\n\nValidation before final output:\n- JSON parses without error\n- MCQ has exactly 4 options\n- answer must be one of A/B/C/D\n- CQ must include at least 2 subQuestions with non-empty prompt+answer\n- Every mathematical expression is wrapped with $...$ (or $$...$$ for display blocks)`;
     showToast('Curriculum prompt generated.');
   }
 
@@ -3692,8 +3692,6 @@
   function readFileAsDataUrl(file) { if (!file) return Promise.resolve(''); return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); }
   const katexDelimiters = [
     { left: '$$', right: '$$', display: true },
-    { left: '\\[', right: '\\]', display: true },
-    { left: '\\(', right: '\\)', display: false },
     { left: '$', right: '$', display: false },
   ];
 
@@ -3725,11 +3723,11 @@
       .join('<br />');
   }
   function hasLatexSyntax(text = '') {
-    return /\\[a-zA-Z]+|\\\(|\\\)|\\\[|\\\]|\$\$|\$[^$]+\$/.test(String(text || ''));
+    return /\\[a-zA-Z]+|\$\$|\$[^$]+\$/.test(String(text || ''));
   }
 
   function hasMathDelimiter(text = '') {
-    return /\\\(|\\\)|\\\[|\\\]|\$\$|\$[^$]+\$/.test(String(text || ''));
+    return /\$\$|\$[^$]+\$/.test(String(text || ''));
   }
 
   function normalizeLatexForRender(text = '') {
@@ -3742,7 +3740,7 @@
       .replace(/\[([A-Za-z0-9^_+\-*/=().,:| ]+?)\\\]/g, '\\\\[$1\\\\]');
     // if LaTeX commands exist but no delimiters, wrap inline
     if (!hasMathDelimiter(next) && /\\[a-zA-Z]+/.test(next)) {
-      next = `\\(${next}\\)`;
+      next = `$${next}$`;
     }
     return next;
   }
@@ -3752,11 +3750,9 @@
       .trim()
       .replace(/^\$\$(.*)\$\$$/s, '$1')
       .replace(/^\$(.*)\$$/s, '$1')
-      .replace(/^\\\((.*)\\\)$/s, '$1')
-      .replace(/^\\\[(.*)\\\]$/s, '$1')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
-    return `<span class="math-tex">\\(${cleaned}\\)</span>`;
+    return `<span class="math-tex">$${cleaned}$</span>`;
   }
 
   function formatMathForDisplay(text, options = {}) {
